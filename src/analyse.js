@@ -7,7 +7,7 @@ const API_URL = (process.env.ANTHROPIC_BASE_URL || 'https://api.anthropic.com') 
 const MODEL = process.env.ANTHROPIC_MODEL || 'claude-sonnet-5-5';
 
 const SOCIETES = { LMF: 'LMF', SAN: 'Simple and New', BMG: 'BMG', SCI: 'SCI E NIZARD' };
-const PAIEMENTS = ['CB CIC', 'AMEX', 'Avance CC', 'Autre'];
+const PAIEMENTS = ['CB CIC', 'AMEX', 'Avance CC', 'Virement / prélèvement', 'Autre'];
 
 function prompt(categories) {
   return `Cette image (ou page PDF) contient une ou plusieurs factures d'achat ou tickets de caisse français.
@@ -65,10 +65,8 @@ function normaliser(r, categories) {
   return r;
 }
 
-// Analyse une image ou une page PDF ; renvoie la liste des tickets trouvés.
-async function analyser(buffer, mimetype, categories) {
+async function appel(block, texte, maxTokens = 4096) {
   if (!process.env.ANTHROPIC_API_KEY) throw new Error('Clé ANTHROPIC_API_KEY non configurée');
-  const block = await toContentBlock(buffer, mimetype);
   let res;
   for (let essai = 0; essai < 3; essai++) {
     res = await fetch(API_URL, {
@@ -80,8 +78,8 @@ async function analyser(buffer, mimetype, categories) {
       },
       body: JSON.stringify({
         model: MODEL,
-        max_tokens: 4096,
-        messages: [{ role: 'user', content: [block, { type: 'text', text: prompt(categories) }] }],
+        max_tokens: maxTokens,
+        messages: [{ role: 'user', content: [block, { type: 'text', text: texte }] }],
       }),
     });
     if (res.ok || ![429, 500, 529].includes(res.status)) break;
@@ -89,10 +87,73 @@ async function analyser(buffer, mimetype, categories) {
   }
   if (!res.ok) throw new Error(`API Claude ${res.status} : ${(await res.text()).slice(0, 300)}`);
   const data = await res.json();
-  const text = (data.content || []).filter((c) => c.type === 'text').map((c) => c.text).join('');
-  const out = parseJson(text);
+  return parseJson((data.content || []).filter((c) => c.type === 'text').map((c) => c.text).join(''));
+}
+
+// Analyse une image ou une page PDF ; renvoie la liste des tickets trouvés.
+async function analyser(buffer, mimetype, categories) {
+  const out = await appel(await toContentBlock(buffer, mimetype), prompt(categories));
   const docs = Array.isArray(out.documents) ? out.documents : [out];
   return docs.map((d) => normaliser(d, categories));
+}
+
+// ---------- Relevés bancaires / de carte ----------
+
+const PROMPT_CLASSER = `Regarde ce document (première page) et dis de quoi il s'agit. Réponds UNIQUEMENT en JSON :
+{
+  "nature": "tickets" | "releve_compte" | "releve_carte",
+  "banque": "CIC" | "AMEX" | "AUTRE" | null,
+  "societe": "LMF" | "SAN" | "BMG" | "SCI" | null,
+  "titulaire": string|null,
+  "numero": string|null,
+  "periode_debut": "AAAA-MM-JJ"|null,
+  "periode_fin": "AAAA-MM-JJ"|null,
+  "solde_debut": number|null,
+  "solde_fin": number|null
+}
+- "tickets" : facture d'achat, ticket de caisse, ou scan de plusieurs tickets.
+- "releve_compte" : relevé / extrait de compte bancaire (liste de mouvements débit/crédit d'un compte courant).
+- "releve_carte" : relevé des opérations d'une carte de paiement (détail des paiements carte d'un mois, carte CIC à débit différé, ou relevé American Express).
+- banque : "AMEX" pour tout relevé American Express (y compris carte American Express distribuée par le CIC) ; "CIC" pour CIC / Crédit Mutuel-CIC.
+- societe : d'après le titulaire / la raison sociale : "LMF" ; "SAN" = Simple and New ; "BMG" ; "SCI" = SCI E NIZARD.
+- numero : les 4 derniers chiffres du numéro de compte ou de carte, sinon null.
+- soldes : relevés de compte uniquement (solde créditeur positif, débiteur négatif).`;
+
+function promptLignes(ctx, categories) {
+  return `Cette page fait partie d'un ${ctx.nature === 'releve_carte' ? 'relevé des opérations de carte' : 'relevé de compte bancaire'} ${ctx.banque || ''}` +
+    `${ctx.periode_debut ? ` couvrant la période du ${ctx.periode_debut} au ${ctx.periode_fin}` : ''}.
+Extrais TOUTES les lignes de mouvement de cette page. Réponds UNIQUEMENT en JSON :
+{ "lignes": [ {
+  "date": "AAAA-MM-JJ",       // date de l'opération (déduis l'année de la période du relevé)
+  "libelle": string,          // libellé complet tel qu'imprimé (lignes de détail regroupées)
+  "montant": number,          // NÉGATIF pour un débit / paiement, POSITIF pour un crédit / remboursement
+  "total_carte": "CB CIC" | "AMEX" | null,
+  "categorie": string|null    // une valeur EXACTE de : ${JSON.stringify(categories)}, ou null
+} ] }
+- N'inclus PAS les lignes de solde (ancien/nouveau solde), de totaux de colonnes, de report, ni les sous-totaux.
+- "total_carte" : uniquement pour une ligne de RELEVÉ DE COMPTE qui est le débit global mensuel d'une carte` +
+  ` (ex. "FACTURE CARTE", "FACTURES CARTES DU …", "CARTE X1234 DEBIT DIFFERE" → "CB CIC" ; prélèvement "AMERICAN EXPRESS" → "AMEX"). Sinon null.
+- Montants : nombres décimaux avec un point. Si la page ne contient aucune ligne, renvoie { "lignes": [] }.`;
+}
+
+async function classer(buffer, mimetype) {
+  const r = await appel(await toContentBlock(buffer, mimetype), PROMPT_CLASSER, 1024);
+  if (!['tickets', 'releve_compte', 'releve_carte'].includes(r.nature)) r.nature = 'tickets';
+  r.societe_nom = r.societe ? SOCIETES[r.societe] || null : null;
+  return r;
+}
+
+async function extraireLignes(buffer, mimetype, ctx, categories) {
+  const out = await appel(await toContentBlock(buffer, mimetype), promptLignes(ctx, categories), 16000);
+  return (Array.isArray(out.lignes) ? out.lignes : [])
+    .filter((l) => l && l.date && l.libelle && l.montant !== null && !Number.isNaN(Number(l.montant)))
+    .map((l) => ({
+      date: l.date,
+      libelle: String(l.libelle).trim(),
+      montant: Number(l.montant),
+      total_carte: ['CB CIC', 'AMEX'].includes(l.total_carte) ? l.total_carte : null,
+      categorie: categories.includes(l.categorie) ? l.categorie : null,
+    }));
 }
 
 // Découpe un PDF en pages individuelles (chaque page devient un PDF d'une page).
@@ -108,4 +169,4 @@ async function decouperPdf(buffer) {
   return pages;
 }
 
-module.exports = { analyser, decouperPdf, PAIEMENTS };
+module.exports = { analyser, classer, extraireLignes, decouperPdf, PAIEMENTS, SOCIETES };

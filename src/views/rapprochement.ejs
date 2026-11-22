@@ -1,0 +1,107 @@
+<%- include('partials/header') %>
+<div class="head">
+  <h1>Rapprochement bancaire</h1>
+  <% if (compte) { %>
+  <form method="post" action="/rapprochement/auto" class="inline">
+    <input type="hidden" name="compte" value="<%= compte.id %>">
+    <button class="secondary">Relancer le rapprochement automatique</button>
+  </form>
+  <% } %>
+</div>
+
+<% if (!compte) { %>
+  <div class="card">Aucun relevé importé pour l'instant. Déposez un relevé PDF (CIC ou AMEX) sur la <a href="/">page de dépôt</a> : il sera reconnu automatiquement.</div>
+<% } else { %>
+
+<div class="tabs">
+  <% comptes.forEach(c => { %>
+    <a class="<%= c.id === compte.id ? 'actif' : '' %>" href="/rapprochement?compte=<%= c.id %>">
+      <%= c.libelle %><% if (c.a_rapprocher) { %> <span class="badge"><%= c.a_rapprocher %></span><% } %>
+    </a>
+  <% }) %>
+</div>
+
+<div class="barre-outils">
+  <form method="post" action="/comptes/<%= compte.id %>" class="inline">
+    Société du compte :
+    <select name="entite_id" onchange="this.form.submit()">
+      <option value="">— à préciser —</option>
+      <% entites.forEach(e => { %><option value="<%= e.id %>" <%= compte.entite_id === e.id ? 'selected' : '' %>><%= e.nom %></option><% }) %>
+    </select>
+  </form>
+  <span class="spacer"></span>
+  <a class="<%= filtre === 'a_faire' ? 'actif' : '' %>" href="/rapprochement?compte=<%= compte.id %>">À rapprocher</a> ·
+  <a class="<%= filtre === 'tout' ? 'actif' : '' %>" href="/rapprochement?compte=<%= compte.id %>&filtre=tout">Toutes les lignes</a>
+</div>
+
+<form method="post" action="/lignes/creer" id="fcreer">
+  <input type="hidden" name="compte" value="<%= compte.id %>">
+</form>
+
+<table>
+  <thead><tr><th><input type="checkbox" onclick="document.querySelectorAll('.chk').forEach(c => c.checked = this.checked)"></th>
+    <th>Date</th><th>Libellé du relevé</th><th class="r">Montant</th><th>Rapprochement</th></tr></thead>
+  <tbody>
+  <% lignes.forEach(l => { %>
+    <tr class="<%= l.ignoree ? 'muted' : '' %>">
+      <td><% if (!l.operation_id && !l.total_carte && !l.ignoree) { %><input type="checkbox" class="chk" name="ligne" value="<%= l.id %>" form="fcreer"><% } %></td>
+      <td><%= l.date_op.toLocaleDateString('fr-FR') %></td>
+      <td><%= l.libelle %><% if (l.categorie && !l.operation_id) { %> <small class="muted">· <%= l.categorie %></small><% } %></td>
+      <td class="r <%= Number(l.montant) < 0 ? 'neg' : 'pos' %>"><%= fmt(l.montant) %></td>
+      <td>
+        <% if (l.operation_id) { %>
+          <span class="pos">✓</span> <a href="/operations/<%= l.operation_id %>/edit"><%= l.op_tiers || l.op_libelle %></a>
+          <small class="muted">(<%= l.op_date.toLocaleDateString('fr-FR') %><%= l.op_justif ? ', 📎' : '' %>)</small>
+          <form method="post" action="/lignes/<%= l.id %>/defaire" class="inline"><button class="link">défaire</button></form>
+        <% } else if (l.total_carte && l.releve_carte_id) { %>
+          <span class="pos">✓</span> Total <%= l.total_carte %> = relevé de carte
+          <% if (l.rc_debut) { %>du <%= l.rc_debut.toLocaleDateString('fr-FR') %> au <%= l.rc_fin ? l.rc_fin.toLocaleDateString('fr-FR') : '?' %><% } %>
+          (<%= l.rc_nb %> opérations)
+          <form method="post" action="/lignes/<%= l.id %>/defaire" class="inline"><button class="link">défaire</button></form>
+        <% } else if (l.total_carte) { %>
+          <span class="muted">Débit global <%= l.total_carte %> — en attente du relevé de carte correspondant</span>
+          <form method="post" action="/lignes/<%= l.id %>/ignorer" class="inline"><button class="link">ignorer</button></form>
+        <% } else if (l.ignoree) { %>
+          Ignorée <form method="post" action="/lignes/<%= l.id %>/defaire" class="inline"><button class="link">rétablir</button></form>
+        <% } else { %>
+          <% if (l.suggestions && l.suggestions.length) { %>
+            <form method="post" action="/lignes/<%= l.id %>/associer" class="inline">
+              <select name="operation_id">
+                <% l.suggestions.forEach(o => { %>
+                  <option value="<%= o.id %>"><%= o.date_op.toLocaleDateString('fr-FR') %> · <%= o.tiers || o.libelle %> · <%= fmt(o.montant_ttc) %> €</option>
+                <% }) %>
+              </select>
+              <button class="secondary">Associer</button>
+            </form>
+          <% } else { %><span class="muted">Aucun ticket correspondant</span><% } %>
+          · <a href="/operations/new?ligne=<%= l.id %>">Créer l'écriture</a>
+          · <form method="post" action="/lignes/<%= l.id %>/ignorer" class="inline"><button class="link">ignorer</button></form>
+        <% } %>
+      </td>
+    </tr>
+  <% }) %>
+  <% if (!lignes.length) { %><tr><td colspan="5" class="muted center">Tout est rapproché 🎉</td></tr><% } %>
+  </tbody>
+</table>
+<% if (lignes.some(l => !l.operation_id && !l.total_carte && !l.ignoree)) { %>
+  <p><button form="fcreer" class="secondary">Créer les écritures des lignes cochées</button>
+  <small class="muted">— pour les mouvements sans ticket (frais bancaires, virements, prélèvements…), avec la catégorie proposée.</small></p>
+<% } %>
+
+<h2>Relevés importés</h2>
+<table>
+  <thead><tr><th>Fichier</th><th>Période</th><th class="r">Lignes</th><th class="r">Total mouvements</th><th></th></tr></thead>
+  <tbody>
+  <% releves.forEach(r => { %>
+    <tr>
+      <td><a href="/releves/<%= r.id %>/fichier" target="_blank"><%= r.nom %></a></td>
+      <td><%= r.periode_debut ? r.periode_debut.toLocaleDateString('fr-FR') + ' → ' + (r.periode_fin ? r.periode_fin.toLocaleDateString('fr-FR') : '?') : '' %></td>
+      <td class="r"><%= r.nb %></td>
+      <td class="r"><%= fmt(r.total) %></td>
+      <td><form method="post" action="/releves/<%= r.id %>/supprimer" class="inline" onsubmit="return confirm('Supprimer ce relevé et ses lignes ?')"><button class="link">supprimer</button></form></td>
+    </tr>
+  <% }) %>
+  </tbody>
+</table>
+<% } %>
+<%- include('partials/footer') %>

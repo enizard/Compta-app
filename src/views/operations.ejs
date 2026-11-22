@@ -56,7 +56,7 @@
       <td><%= o.paiement || '' %></td>
       <td class="r <%= o.type === 'recette' ? 'pos' : 'neg' %>"><%= o.type === 'recette' ? '+' : '−' %> <%= fmt(o.montant_ttc) %></td>
       <td class="r"><%= Number(o.tva) ? fmt(o.tva) : '' %></td>
-      <td><% if (o.justif_nom) { %><a href="/operations/<%= o.id %>/justificatif" target="_blank">📎</a><% } else { %><span class="muted">—</span><% } %></td>
+      <td><% if (o.rapprochee) { %><span title="Rapprochée avec le relevé">🏦</span><% } %><% if (o.justif_nom) { %><a href="/operations/<%= o.id %>/justificatif" target="_blank">📎</a><% } else if (!o.rapprochee) { %><span class="muted">—</span><% } %></td>
       <td><a href="/operations/<%= o.id %>/edit">Modifier</a></td>
     </tr>
   <% }) %>

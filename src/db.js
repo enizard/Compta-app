@@ -73,6 +73,45 @@ async function init() {
     ALTER TABLE depots ADD COLUMN IF NOT EXISTS page INTEGER NOT NULL DEFAULT 1;
     ALTER TABLE depots ADD COLUMN IF NOT EXISTS ordre INTEGER NOT NULL DEFAULT 0;
     ALTER TABLE depots ADD COLUMN IF NOT EXISTS statut TEXT NOT NULL DEFAULT 'a_valider';
+    ALTER TABLE lots ADD COLUMN IF NOT EXISTS nature TEXT;
+    CREATE TABLE IF NOT EXISTS comptes (
+      id SERIAL PRIMARY KEY,
+      banque TEXT NOT NULL,
+      nature TEXT NOT NULL CHECK (nature IN ('compte','carte')),
+      numero TEXT,
+      entite_id INTEGER REFERENCES entites(id),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE TABLE IF NOT EXISTS releves (
+      id SERIAL PRIMARY KEY,
+      lot_id INTEGER REFERENCES lots(id) ON DELETE SET NULL,
+      compte_id INTEGER NOT NULL REFERENCES comptes(id),
+      nom TEXT NOT NULL,
+      mimetype TEXT NOT NULL,
+      data BYTEA NOT NULL,
+      periode_debut DATE,
+      periode_fin DATE,
+      solde_debut NUMERIC(12,2),
+      solde_fin NUMERIC(12,2),
+      nb_doublons INTEGER NOT NULL DEFAULT 0,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE TABLE IF NOT EXISTS lignes (
+      id SERIAL PRIMARY KEY,
+      releve_id INTEGER NOT NULL REFERENCES releves(id) ON DELETE CASCADE,
+      compte_id INTEGER NOT NULL REFERENCES comptes(id),
+      page INTEGER,
+      date_op DATE NOT NULL,
+      libelle TEXT NOT NULL,
+      montant NUMERIC(12,2) NOT NULL,
+      categorie TEXT,
+      total_carte TEXT,
+      operation_id INTEGER REFERENCES operations(id) ON DELETE SET NULL,
+      releve_carte_id INTEGER REFERENCES releves(id) ON DELETE SET NULL,
+      ignoree BOOLEAN NOT NULL DEFAULT FALSE
+    );
+    CREATE INDEX IF NOT EXISTS idx_lignes_compte ON lignes(compte_id, date_op);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_lignes_operation ON lignes(operation_id) WHERE operation_id IS NOT NULL;
     CREATE TABLE IF NOT EXISTS "session" (
       "sid" varchar NOT NULL COLLATE "default" PRIMARY KEY,
       "sess" json NOT NULL,
@@ -84,8 +123,8 @@ async function init() {
   // Un lot interrompu par un redémarrage du serveur est marqué en erreur.
   await pool.query("UPDATE lots SET statut='interrompu' WHERE statut='en_cours'");
   // Ménage : lots entièrement traités depuis plus de 7 jours.
-  await pool.query(`DELETE FROM lots l WHERE l.created_at < NOW() - INTERVAL '7 days'
-    AND NOT EXISTS (SELECT 1 FROM depots d WHERE d.lot_id = l.id AND d.statut = 'a_valider')`);
+  await pool.query(`DELETE FROM depots d USING lots l WHERE d.lot_id = l.id AND l.created_at < NOW() - INTERVAL '7 days'
+    AND NOT EXISTS (SELECT 1 FROM depots d2 WHERE d2.lot_id = l.id AND d2.statut = 'a_valider')`);
   await pool.query("DELETE FROM depots WHERE lot_id IS NULL");
   for (const nom of ENTITES) {
     await pool.query('INSERT INTO entites (nom) VALUES ($1) ON CONFLICT DO NOTHING', [nom]);

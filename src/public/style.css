@@ -59,3 +59,12 @@ input[hidden] { display: none !important; }
 .barre { height: 8px; background: #e8ecf4; border-radius: 4px; overflow: hidden; margin: 8px 0 12px; }
 .barre div { height: 100%; background: #2557d6; transition: width .4s; }
 form.ignorer { margin-top: 12px; }
+
+.tabs { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 12px; }
+.tabs a { padding: 6px 12px; border-radius: 6px; background: #fff; border: 1px solid #e2e5ea; color: #1d2433; }
+.tabs a.actif { background: #1d2433; color: #fff; border-color: #1d2433; }
+.badge { display: inline-block; min-width: 18px; padding: 0 6px; border-radius: 9px; background: #b42318; color: #fff; font-size: 11px; text-align: center; }
+.barre-outils { display: flex; align-items: center; gap: 8px; margin: 8px 0 12px; }
+.barre-outils .spacer { flex: 1; }
+.barre-outils a.actif { font-weight: 600; }
+tr.muted td { color: #9aa1b0; }

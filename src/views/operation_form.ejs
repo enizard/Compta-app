@@ -26,6 +26,9 @@
   <% } %>
   <form method="post" action="<%= op.id ? '/operations/' + op.id : '/operations' %>" enctype="multipart/form-data" class="grid">
     <% if (depot) { %><input type="hidden" name="depot_id" value="<%= depot.id %>"><% } %>
+    <% const ligne = typeof locals.ligne !== 'undefined' ? locals.ligne : null; %>
+    <% if (ligne) { %><input type="hidden" name="ligne_id" value="<%= ligne.id %>">
+      <div class="wide flash">Écriture créée à partir de la ligne de relevé « <%= ligne.libelle %> » — elle y sera rapprochée.</div><% } %>
     <label>Société *
       <select name="entite_id" required>
         <option value="">—</option>

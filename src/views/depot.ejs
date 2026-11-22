@@ -6,7 +6,7 @@
 <form id="f" method="post" action="/depot" enctype="multipart/form-data">
   <label class="drop" id="zone">
     <span class="big">📄</span>
-    <strong>Glissez une facture, une photo de ticket ou un scan PDF de plusieurs tickets ici</strong>
+    <strong>Glissez ici une facture, un ticket, un scan de tickets ou un relevé CIC / AMEX (PDF)</strong>
     <span class="muted">ou cliquez pour choisir un fichier / prendre une photo</span>
     <input type="file" name="fichier" id="fichier" accept="application/pdf,image/*" hidden>
   </label>
@@ -27,7 +27,7 @@
     </tbody>
   </table>
 <% } %>
-<p class="muted">Sur les tickets, notez à la main la société (LMF, SAN, BMG, SCI) et le paiement (CB CIC / CIC, AMEX, Avance CC / CC) : ils seront reconnus automatiquement.</p>
+<p class="muted">Les relevés de compte CIC, de carte CIC et AMEX sont reconnus automatiquement (banque et société) et leurs lignes sont rapprochées des tickets et factures. Sur les tickets, notez à la main la société (LMF, SAN, BMG, SCI) et le paiement (CB CIC / CIC, AMEX, Avance CC / CC) : ils seront reconnus automatiquement.</p>
 <script>
   const zone = document.getElementById('zone'), input = document.getElementById('fichier'), form = document.getElementById('f');
   function envoyer() {

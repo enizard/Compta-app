@@ -6,7 +6,8 @@ const bcrypt = require('bcryptjs');
 const multer = require('multer');
 const crypto = require('crypto');
 const { pool, init } = require('./db');
-const { analyser, decouperPdf, PAIEMENTS } = require('./analyse');
+const { analyser, classer, extraireLignes, decouperPdf, PAIEMENTS } = require('./analyse');
+const releves = require('./releves');
 
 const app = express();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
@@ -92,7 +93,8 @@ function buildFilters(q) {
 const OPS_SELECT = `
   SELECT o.id, o.date_op, o.type, o.libelle, o.tiers, o.montant_ttc, o.tva, o.notes,
          o.justif_nom, o.entite_id, o.categorie_id, o.paiement, o.carte,
-         e.nom AS entite, c.nom AS categorie, u.nom AS auteur
+         e.nom AS entite, c.nom AS categorie, u.nom AS auteur,
+         EXISTS (SELECT 1 FROM lignes x WHERE x.operation_id = o.id) AS rapprochee
   FROM operations o
   JOIN entites e ON e.id = o.entite_id
   LEFT JOIN categories c ON c.id = o.categorie_id
@@ -149,6 +151,38 @@ app.get('/', requireAuth, async (req, res) => {
   res.render('depot', { iaActive: !!process.env.ANTHROPIC_API_KEY, lots });
 });
 
+// Relevé : on extrait les lignes page par page puis on lance le rapprochement.
+async function traiterReleve(lotId, fichier, pages, info, cats, userId) {
+  const { entites } = await refs();
+  const ent = entites.find((e) => e.nom === info.societe_nom);
+  const compteId = await releves.trouverCompte(info, ent ? ent.id : null);
+  const { rows } = await pool.query(
+    `INSERT INTO releves (lot_id, compte_id, nom, mimetype, data, periode_debut, periode_fin, solde_debut, solde_fin)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,
+    [lotId, compteId, fichier.originalname, fichier.mimetype, fichier.buffer,
+      info.periode_debut || null, info.periode_fin || null, info.solde_debut ?? null, info.solde_fin ?? null]);
+  const releveId = rows[0].id;
+  const erreurs = [];
+  let suivant = 0;
+  async function travailleur() {
+    while (suivant < pages.length) {
+      const p = pages[suivant++];
+      try {
+        const lignes = await extraireLignes(p.buf, p.type, info, cats);
+        await releves.insererLignes(releveId, compteId, p.page, lignes);
+      } catch (e) {
+        console.error(`Relevé ${releveId} page ${p.page} :`, e.message);
+        erreurs.push(`page ${p.page}`);
+      }
+      await pool.query('UPDATE lots SET pages_traitees = pages_traitees + 1 WHERE id=$1', [lotId]);
+    }
+  }
+  await Promise.all([travailleur(), travailleur(), travailleur()]);
+  await releves.rapprocher();
+  await pool.query("UPDATE lots SET statut='termine', erreur=$1 WHERE id=$2",
+    [erreurs.length ? `Lecture impossible : ${erreurs.join(', ')}` : null, lotId]);
+}
+
 // Traitement en arrière-plan d'un lot (évite la limite de 30 s des requêtes Heroku).
 async function traiterLot(lotId, fichier, userId) {
   try {
@@ -161,8 +195,14 @@ async function traiterLot(lotId, fichier, userId) {
       pages = [{ buf: fichier.buffer, type: fichier.mimetype, page: 1 }];
     }
     await pool.query('UPDATE lots SET total_pages=$1 WHERE id=$2', [pages.length, lotId]);
-    const base = fichier.originalname.replace(/\.[^.]+$/, '');
-    const ext = fichier.mimetype === 'application/pdf' ? '.pdf' : (fichier.originalname.match(/\.[^.]+$/) || ['.jpg'])[0];
+
+    // Relevé bancaire / de carte, ou tickets ? On regarde la première page.
+    let info = { nature: 'tickets' };
+    if (process.env.ANTHROPIC_API_KEY) {
+      try { info = await classer(pages[0].buf, pages[0].type); } catch (e) { console.error(`Lot ${lotId} classement :`, e.message); }
+    }
+    await pool.query('UPDATE lots SET nature=$1 WHERE id=$2', [info.nature, lotId]);
+    if (info.nature !== 'tickets') return await traiterReleve(lotId, fichier, pages, info, cats, userId);
 
     let suivant = 0;
     async function travailleur() {
@@ -203,6 +243,23 @@ app.post('/depot', requireAuth, upload.single('fichier'), async (req, res) => {
   res.redirect(`/lot/${rows[0].id}`);
 });
 
+async function listeComptes() {
+  const { rows } = await pool.query(`
+    SELECT c.*, e.nom AS entite,
+      COUNT(l.id) FILTER (WHERE l.operation_id IS NULL AND l.releve_carte_id IS NULL AND NOT l.ignoree)::int AS a_rapprocher
+    FROM comptes c LEFT JOIN entites e ON e.id = c.entite_id LEFT JOIN lignes l ON l.compte_id = c.id
+    GROUP BY c.id, e.nom ORDER BY e.nom NULLS LAST, c.banque, c.nature`);
+  return rows.map((c) => ({ ...c, libelle: nomCompte(c) }));
+}
+function nomCompte(c) {
+  const type = c.banque === 'AMEX' ? 'Carte AMEX' : c.nature === 'carte' ? `Carte ${c.banque}` : `Compte ${c.banque}`;
+  return `${type}${c.numero ? ' …' + c.numero : ''} — ${c.entite || 'société à préciser'}`;
+}
+async function libelleCompte(id) {
+  const { rows } = await pool.query('SELECT c.*, e.nom AS entite FROM comptes c LEFT JOIN entites e ON e.id = c.entite_id WHERE c.id=$1', [id]);
+  return rows[0] ? { ...rows[0], libelle: nomCompte(rows[0]) } : null;
+}
+
 async function etatLot(id) {
   const { rows } = await pool.query('SELECT * FROM lots WHERE id=$1', [id]);
   if (!rows[0]) return null;
@@ -210,7 +267,14 @@ async function etatLot(id) {
     `SELECT id, page, ordre, statut, erreur, resultat->>'fournisseur' AS fournisseur,
        resultat->>'montant_ttc' AS montant_ttc, resultat->>'date' AS date
      FROM depots WHERE lot_id=$1 ORDER BY page, ordre`, [id]);
-  return { lot: rows[0], depots };
+  const { rows: rel } = await pool.query(`
+    SELECT r.id, r.compte_id, r.periode_debut, r.periode_fin, r.nb_doublons,
+      COUNT(l.id)::int AS nb_lignes,
+      COUNT(l.id) FILTER (WHERE l.operation_id IS NOT NULL OR l.releve_carte_id IS NOT NULL)::int AS nb_rapprochees
+    FROM releves r LEFT JOIN lignes l ON l.releve_id = r.id
+    WHERE r.lot_id = $1 GROUP BY r.id`, [id]);
+  const releve = rel[0] ? { ...rel[0], compte: await libelleCompte(rel[0].compte_id) } : null;
+  return { lot: rows[0], depots, releve };
 }
 
 app.get('/lot/:id', requireAuth, async (req, res) => {
@@ -227,7 +291,8 @@ app.get('/lot/:id', requireAuth, async (req, res) => {
 app.get('/lot/:id/etat.json', requireAuth, async (req, res) => {
   const e = await etatLot(req.params.id);
   if (!e) return res.status(404).json({});
-  res.json({ statut: e.lot.statut, total: e.lot.total_pages, faites: e.lot.pages_traitees, tickets: e.depots.length });
+  res.json({ statut: e.lot.statut, total: e.lot.total_pages, faites: e.lot.pages_traitees,
+    tickets: e.releve ? e.releve.nb_lignes : e.depots.length });
 });
 
 app.get('/depot/:id', requireAuth, async (req, res) => {
@@ -303,10 +368,25 @@ app.get('/operations', requireAuth, async (req, res) => {
 });
 
 app.get('/operations/new', requireAuth, async (req, res) => {
-  res.render('operation_form', {
-    op: { date_op: new Date().toISOString().slice(0, 10), type: 'depense', entite_id: Number(req.query.entite) || null },
-    ...(await refs()),
-  });
+  const r = await refs();
+  let op = { date_op: new Date().toISOString().slice(0, 10), type: 'depense', entite_id: Number(req.query.entite) || null };
+  let ligne = null;
+  if (req.query.ligne) {
+    const { rows } = await pool.query(
+      'SELECT l.*, c.entite_id, c.nature, c.banque FROM lignes l JOIN comptes c ON c.id = l.compte_id WHERE l.id=$1', [req.query.ligne]);
+    ligne = rows[0] || null;
+    if (ligne) {
+      const cat = r.categories.find((c) => c.nom === ligne.categorie);
+      const d = ligne.date_op;
+      op = {
+        date_op: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`,
+        type: Number(ligne.montant) < 0 ? 'depense' : 'recette', entite_id: ligne.entite_id,
+        categorie_id: cat ? cat.id : null, libelle: ligne.libelle, montant_ttc: Math.abs(Number(ligne.montant)),
+        paiement: ligne.nature === 'carte' ? (ligne.banque === 'AMEX' ? 'AMEX' : 'CB CIC') : 'Virement / prélèvement',
+      };
+    }
+  }
+  res.render('operation_form', { op, ligne, ...r });
 });
 
 function opValues(b) {
@@ -334,12 +414,23 @@ app.post('/operations', requireAuth, upload.single('justificatif'), async (req, 
     const { rows } = await pool.query('SELECT nom, mimetype, data FROM depots WHERE id=$1', [depotId]);
     if (rows[0]) f = { nom: rows[0].nom, type: rows[0].mimetype, data: rows[0].data };
   }
-  await pool.query(
+  const { rows: ins } = await pool.query(
     `INSERT INTO operations (entite_id, date_op, type, categorie_id, libelle, tiers, montant_ttc, tva, notes,
        paiement, carte, justif_nom, justif_type, justif_data, created_by)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING id`,
     [...v, f ? f.nom : null, f ? f.type : null, f ? f.data : null, req.session.user.id]);
+  const opId = ins[0].id;
+  if (req.body.ligne_id) {
+    await pool.query('UPDATE lignes SET operation_id=$1 WHERE id=$2 AND operation_id IS NULL',
+      [opId, Number(req.body.ligne_id)]).catch(() => {});
+  } else {
+    releves.rapprocher().catch((e) => console.error('Rapprochement :', e.message));
+  }
   flash(req, 'Opération enregistrée.');
+  if (req.body.ligne_id) {
+    const { rows } = await pool.query('SELECT compte_id FROM lignes WHERE id=$1', [Number(req.body.ligne_id)]);
+    return res.redirect(`/rapprochement?compte=${rows[0] ? rows[0].compte_id : ''}`);
+  }
   if (depotId) {
     await pool.query("UPDATE depots SET statut='enregistre' WHERE id=$1", [depotId]);
     return res.redirect(await prochainDepot(depotId));
@@ -384,6 +475,109 @@ app.get('/operations/:id/justificatif', requireAuth, async (req, res) => {
   res.set('Content-Type', r.justif_type || 'application/octet-stream');
   res.set('Content-Disposition', `inline; filename*=UTF-8''${encodeURIComponent(r.justif_nom)}`);
   res.send(r.justif_data);
+});
+
+// ---------- rapprochement ----------
+app.get('/rapprochement', requireAuth, async (req, res) => {
+  const comptes = await listeComptes();
+  if (!comptes.length) return res.render('rapprochement', { comptes, compte: null, lignes: [], releves: [], filtre: 'a_faire', ...(await refs()) });
+  const compte = comptes.find((c) => String(c.id) === String(req.query.compte)) || comptes.find((c) => c.a_rapprocher) || comptes[0];
+  const filtre = req.query.filtre === 'tout' ? 'tout' : 'a_faire';
+  const { rows: lignes } = await pool.query(`
+    SELECT l.*, o.libelle AS op_libelle, o.tiers AS op_tiers, o.date_op AS op_date, o.justif_nom AS op_justif,
+      r.periode_debut AS rc_debut, r.periode_fin AS rc_fin,
+      (SELECT COUNT(*) FROM lignes x WHERE x.releve_id = r.id)::int AS rc_nb
+    FROM lignes l
+    LEFT JOIN operations o ON o.id = l.operation_id
+    LEFT JOIN releves r ON r.id = l.releve_carte_id
+    WHERE l.compte_id = $1 ${filtre === 'a_faire' ? 'AND l.operation_id IS NULL AND l.releve_carte_id IS NULL AND NOT l.ignoree' : ''}
+    ORDER BY l.date_op DESC, l.id DESC`, [compte.id]);
+  // Suggestions pour les lignes non rapprochées (même montant, ±45 jours).
+  for (const l of lignes) {
+    if (!l.operation_id && !l.total_carte && !l.ignoree) {
+      l.suggestions = await releves.candidats({ ...l, nature: compte.nature, banque: compte.banque, entite_id: compte.entite_id }, 45);
+    }
+  }
+  const { rows: rels } = await pool.query(
+    `SELECT r.id, r.nom, r.periode_debut, r.periode_fin, r.created_at,
+       (SELECT COUNT(*) FROM lignes WHERE releve_id = r.id)::int AS nb,
+       (SELECT COALESCE(SUM(montant),0) FROM lignes WHERE releve_id = r.id) AS total
+     FROM releves r WHERE r.compte_id = $1 ORDER BY r.periode_debut DESC NULLS LAST, r.id DESC`, [compte.id]);
+  res.render('rapprochement', { comptes, compte, lignes, releves: rels, filtre, ...(await refs()) });
+});
+
+app.post('/rapprochement/auto', requireAuth, async (req, res) => {
+  const n = await releves.rapprocher();
+  flash(req, `${n} rapprochement(s) automatique(s) effectué(s).`);
+  res.redirect(`/rapprochement?compte=${Number(req.body.compte) || ''}`);
+});
+
+app.post('/lignes/:id/associer', requireAuth, async (req, res) => {
+  const { rows } = await pool.query('SELECT compte_id FROM lignes WHERE id=$1', [req.params.id]);
+  try {
+    await pool.query('UPDATE lignes SET operation_id=$1 WHERE id=$2', [Number(req.body.operation_id), req.params.id]);
+    flash(req, 'Ligne rapprochée.');
+  } catch (e) {
+    flash(req, 'Cette opération est déjà rapprochée d\'une autre ligne.', 'err');
+  }
+  res.redirect(`/rapprochement?compte=${rows[0] ? rows[0].compte_id : ''}`);
+});
+
+app.post('/lignes/:id/defaire', requireAuth, async (req, res) => {
+  const { rows } = await pool.query(
+    'UPDATE lignes SET operation_id=NULL, releve_carte_id=NULL, ignoree=FALSE WHERE id=$1 RETURNING compte_id', [req.params.id]);
+  flash(req, 'Rapprochement annulé.');
+  res.redirect(`/rapprochement?compte=${rows[0] ? rows[0].compte_id : ''}&filtre=tout`);
+});
+
+app.post('/lignes/:id/ignorer', requireAuth, async (req, res) => {
+  const { rows } = await pool.query('UPDATE lignes SET ignoree=TRUE WHERE id=$1 RETURNING compte_id', [req.params.id]);
+  res.redirect(`/rapprochement?compte=${rows[0] ? rows[0].compte_id : ''}`);
+});
+
+// Crée les écritures pour les lignes cochées (sans ticket ni facture : frais, virements, prélèvements…).
+app.post('/lignes/creer', requireAuth, async (req, res) => {
+  const ids = [].concat(req.body.ligne || []).map(Number).filter(Boolean);
+  let n = 0;
+  let compteId = Number(req.body.compte) || null;
+  for (const id of ids) {
+    const { rows } = await pool.query(
+      `SELECT l.*, c.entite_id, c.nature, c.banque FROM lignes l JOIN comptes c ON c.id = l.compte_id
+       WHERE l.id=$1 AND l.operation_id IS NULL AND l.total_carte IS NULL`, [id]);
+    const l = rows[0];
+    if (!l || !l.entite_id) continue;
+    const cat = l.categorie ? (await pool.query('SELECT id FROM categories WHERE nom=$1', [l.categorie])).rows[0] : null;
+    const paiement = l.nature === 'carte' ? (l.banque === 'AMEX' ? 'AMEX' : 'CB CIC') : 'Virement / prélèvement';
+    const op = await pool.query(
+      `INSERT INTO operations (entite_id, date_op, type, categorie_id, libelle, montant_ttc, tva, paiement, created_by)
+       VALUES ($1,$2,$3,$4,$5,$6,0,$7,$8) RETURNING id`,
+      [l.entite_id, l.date_op, Number(l.montant) < 0 ? 'depense' : 'recette', cat ? cat.id : null, l.libelle,
+        Math.abs(Number(l.montant)), paiement, req.session.user.id]);
+    await pool.query('UPDATE lignes SET operation_id=$1 WHERE id=$2', [op.rows[0].id, id]);
+    n++;
+  }
+  flash(req, n ? `${n} écriture(s) créée(s).` : 'Aucune écriture créée (société du compte à préciser ?).', n ? 'ok' : 'err');
+  res.redirect(`/rapprochement?compte=${compteId || ''}`);
+});
+
+app.post('/comptes/:id', requireAuth, async (req, res) => {
+  await pool.query('UPDATE comptes SET entite_id=$1 WHERE id=$2', [Number(req.body.entite_id) || null, req.params.id]);
+  await releves.rapprocher();
+  res.redirect(`/rapprochement?compte=${req.params.id}`);
+});
+
+app.get('/releves/:id/fichier', requireAuth, async (req, res) => {
+  const { rows } = await pool.query('SELECT nom, mimetype, data FROM releves WHERE id=$1', [req.params.id]);
+  if (!rows[0]) return res.status(404).send('Introuvable');
+  res.set('Content-Type', rows[0].mimetype);
+  res.set('Content-Disposition', `inline; filename*=UTF-8''${encodeURIComponent(rows[0].nom)}`);
+  res.send(rows[0].data);
+});
+
+app.post('/releves/:id/supprimer', requireAuth, async (req, res) => {
+  const { rows } = await pool.query('DELETE FROM releves WHERE id=$1 RETURNING compte_id', [req.params.id]);
+  flash(req, 'Relevé et ses lignes supprimés.');
+  res.redirect(`/rapprochement?compte=${rows[0] ? rows[0].compte_id : ''}`);
 });
 
 // ---------- export CSV (pour l'expert-comptable) ----------

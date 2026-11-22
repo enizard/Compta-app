@@ -2,7 +2,7 @@
 <h1><%= lot.nom %></h1>
 <% if (lot.statut === 'en_cours') { %>
   <div class="card">
-    <p><strong>Lecture en cours…</strong> <span id="prog"><%= lot.pages_traitees %> / <%= lot.total_pages || '?' %> page(s) lue(s)</span>, <span id="nb"><%= depots.length %></span> ticket(s) trouvé(s).</p>
+    <p><strong>Lecture en cours…</strong> <span id="prog"><%= lot.pages_traitees %> / <%= lot.total_pages || '?' %> page(s) lue(s)</span>, <span id="nb"><%= depots.length %></span> <%= lot.nature && lot.nature !== 'tickets' ? 'ligne(s) de relevé' : 'ticket(s)' %> trouvé(s).</p>
     <div class="barre"><div id="barre" style="width: <%= lot.total_pages ? Math.round(100 * lot.pages_traitees / lot.total_pages) : 0 %>%"></div></div>
     <% if (aValider.length) { %><p><a class="btn" href="/depot/<%= aValider[0].id %>">Commencer à valider sans attendre</a></p><% } %>
   </div>
@@ -20,6 +20,11 @@
   <div class="flash err">Le traitement a échoué : <%= lot.erreur %></div>
 <% } else if (lot.statut === 'interrompu') { %>
   <div class="flash err">Le traitement a été interrompu (redémarrage du serveur). Les tickets déjà lus sont ci-dessous ; redéposez le fichier pour le reste.</div>
+<% } else if (releve) { %>
+  <div class="flash">Relevé reconnu : <strong><%= releve.compte.libelle %></strong><% if (releve.periode_debut) { %>, du <%= releve.periode_debut.toLocaleDateString('fr-FR') %> au <%= releve.periode_fin ? releve.periode_fin.toLocaleDateString('fr-FR') : '?' %><% } %>.<br>
+    <%= releve.nb_lignes %> ligne(s) enregistrée(s)<% if (releve.nb_doublons) { %>, <%= releve.nb_doublons %> déjà importée(s) ignorée(s)<% } %> — <%= releve.nb_rapprochees %> rapprochée(s) automatiquement.</div>
+  <% if (lot.erreur) { %><div class="flash err"><%= lot.erreur %></div><% } %>
+  <p><a class="btn" href="/rapprochement?compte=<%= releve.compte_id %>">Voir le rapprochement →</a></p>
 <% } else { %>
   <div class="flash"><%= depots.length %> ticket(s) trouvé(s) sur <%= lot.total_pages %> page(s). <%= aValider.length ? aValider.length + ' à valider.' : 'Tout est traité.' %></div>
   <% if (aValider.length) { %><p><a class="btn" href="/depot/<%= aValider[0].id %>">Valider les tickets un par un →</a></p><% } %>

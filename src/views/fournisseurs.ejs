@@ -1,0 +1,70 @@
+<%- include('partials/header') %>
+<% const RECUP = { email: 'Automatisable — factures reçues par e-mail', api: 'Automatisable — API / connecteur', portail: 'Manuel — téléchargement sur le site', non: 'Pas de facture en ligne' }; %>
+<div class="head">
+  <h1>Fournisseurs</h1>
+  <form method="post" action="/fournisseurs/analyser" class="inline"><button class="secondary">Analyser les nouveaux fournisseurs</button></form>
+</div>
+<% if (enAttente.lignes || enAttente.fourn) { %>
+  <div class="flash">Analyse en cours ou à lancer : <%= enAttente.lignes %> ligne(s) de relevé et <%= enAttente.fourn %> fournisseur(s) pas encore classés.</div>
+  <script>setTimeout(() => location.reload(), 8000);</script>
+<% } %>
+<p class="muted">Les fournisseurs sont détectés dans les relevés et les tickets. « Factures manquantes » = débits du relevé sans facture jointe. Cliquez sur « modifier » pour corriger un classement : il ne sera plus changé automatiquement.</p>
+
+<% function bloc(titre, liste, aide) { %>
+  <h2><%= titre %> <span class="muted">(<%= liste.length %>)</span></h2>
+  <% if (aide) { %><p class="muted"><%= aide %></p><% } %>
+  <% if (!liste.length) { %><p class="muted">Aucun.</p><% return; } %>
+  <table>
+    <thead><tr><th>Fournisseur</th><th>Société(s)</th><th class="r">Opérations</th><th class="r">Mois</th><th class="r">Total</th><th>Dernier</th><th class="r">Factures manquantes</th><th>Factures</th><th></th></tr></thead>
+    <tbody>
+    <% liste.forEach(f => { %>
+      <tr>
+        <td><strong><%= f.nom %></strong><% if (f.note) { %><br><small class="muted"><%= f.note %></small><% } %></td>
+        <td><small><%= f.societes || '' %></small></td>
+        <td class="r"><%= f.nb %></td>
+        <td class="r"><%= f.mois %></td>
+        <td class="r"><%= fmt(f.total) %></td>
+        <td><%= f.dernier ? f.dernier.toLocaleDateString('fr-FR') : '' %></td>
+        <td class="r <%= f.manquantes ? 'neg' : 'pos' %>"><%= f.manquantes || '✓' %></td>
+        <td>
+          <% if (f.url) { %><a href="<%= f.url %>" target="_blank" rel="noopener">Espace factures ↗</a><br><% } %>
+          <small><%= f.recuperation ? RECUP[f.recuperation] : (f.classe_le ? '' : 'à analyser…') %></small>
+        </td>
+        <td><a href="#" onclick="document.getElementById('ed<%= f.id %>').hidden = !document.getElementById('ed<%= f.id %>').hidden; return false;">modifier</a></td>
+      </tr>
+      <tr id="ed<%= f.id %>" hidden>
+        <td colspan="9">
+          <form method="post" action="/fournisseurs/<%= f.id %>" class="grid">
+            <label>Type
+              <select name="type">
+                <option value="recurrent" <%= f.recurrent ? 'selected' : '' %>>Récurrent</option>
+                <option value="ponctuel" <%= !f.recurrent ? 'selected' : '' %>>Facture unitaire (ponctuel)</option>
+              </select>
+            </label>
+            <label>Factures en ligne
+              <select name="en_ligne">
+                <option value="1" <%= f.en_ligne ? 'selected' : '' %>>Oui</option>
+                <option value="0" <%= !f.en_ligne ? 'selected' : '' %>>Non</option>
+              </select>
+            </label>
+            <label>Récupération
+              <select name="recuperation">
+                <option value="">—</option>
+                <% Object.entries(RECUP).forEach(([k, v]) => { %><option value="<%= k %>" <%= f.recuperation === k ? 'selected' : '' %>><%= v %></option><% }) %>
+              </select>
+            </label>
+            <label>Lien espace factures<input name="url" value="<%= f.url || '' %>" placeholder="https://…"></label>
+            <label class="wide">Note<input name="note" value="<%= f.note || '' %>"></label>
+            <div class="wide"><button>Enregistrer</button></div>
+          </form>
+        </td>
+      </tr>
+    <% }) %>
+    </tbody>
+  </table>
+<% } %>
+
+<% bloc('Récurrents — factures à récupérer en ligne', groupes.enLigne, 'Fournisseurs réguliers avec espace client : ceux marqués « automatisable » pourront être connectés pour récupérer les factures automatiquement.') %>
+<% bloc('Récurrents — sans espace en ligne', groupes.recurrents) %>
+<% bloc('Factures unitaires (ponctuels)', groupes.ponctuels) %>
+<%- include('partials/footer') %>

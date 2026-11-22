@@ -66,6 +66,7 @@ function normaliser(r, categories) {
 }
 
 async function appel(block, texte, maxTokens = 4096) {
+  const content = block ? [block, { type: 'text', text: texte }] : [{ type: 'text', text: texte }];
   if (!process.env.ANTHROPIC_API_KEY) throw new Error('Clé ANTHROPIC_API_KEY non configurée');
   let res;
   for (let essai = 0; essai < 3; essai++) {
@@ -79,7 +80,7 @@ async function appel(block, texte, maxTokens = 4096) {
       body: JSON.stringify({
         model: MODEL,
         max_tokens: maxTokens,
-        messages: [{ role: 'user', content: [block, { type: 'text', text: texte }] }],
+        messages: [{ role: 'user', content }],
       }),
     });
     if (res.ok || ![429, 500, 529].includes(res.status)) break;
@@ -130,6 +131,7 @@ Extrais TOUTES les lignes de mouvement de cette page. Réponds UNIQUEMENT en JSO
   "montant": number,          // NÉGATIF pour un débit / paiement, POSITIF pour un crédit / remboursement
   "section": "compte" | "carte",
   "carte_numero": string|null,
+  "fournisseur": string|null, // nom commercial court et normalisé du tiers (ex. "Orange", "OVH", "Amazon", "G7", "DGFIP", "SNCF"), null pour un virement interne / la ligne RELEVE CARTE
   "total_carte": "CB CIC" | "AMEX" | null,
   "categorie": string|null    // une valeur EXACTE de : ${JSON.stringify(categories)}, ou null
 } ],
@@ -164,6 +166,7 @@ async function extraireLignes(buffer, mimetype, ctx, categories) {
       libelle: String(l.libelle).trim(),
       montant: Number(l.montant),
       section: ctx.nature === 'releve_carte' || l.section === 'carte' ? 'carte' : 'compte',
+      fournisseur: l.fournisseur ? String(l.fournisseur).trim().slice(0, 80) : null,
       carte_numero: l.carte_numero ? String(l.carte_numero).replace(/\D/g, '').slice(-4) || null : null,
       total_carte: l.section === 'carte' ? null : (['CB CIC', 'AMEX'].includes(l.total_carte) ? l.total_carte : null),
       categorie: categories.includes(l.categorie) ? l.categorie : null,
@@ -184,4 +187,39 @@ async function decouperPdf(buffer) {
   return pages;
 }
 
-module.exports = { analyser, classer, extraireLignes, decouperPdf, PAIEMENTS, SOCIETES };
+// Nom de fournisseur normalisé pour une liste de libellés bancaires (rattrapage).
+async function normaliserFournisseurs(libelles) {
+  const out = await appel(null, `Pour chaque libellé bancaire ci-dessous, donne le nom commercial court et normalisé du fournisseur / tiers
+(ex. "PRLV SEPA ORANGE SA ORANGE SA VOTRE ABONNEMENT…" → "Orange" ; "STAT. PAYBYPHON 94 /IVRY" → "PayByPhone" ; "AMAZON PAYMENTS" → "Amazon").
+Le même fournisseur doit toujours avoir exactement le même nom. null pour un virement interne entre comptes ou un débit global de carte.
+Réponds UNIQUEMENT en JSON : { "resultats": [ { "i": <index>, "fournisseur": string|null } ] }
+Libellés :
+${libelles.map((l, i) => `${i}. ${l}`).join('\n')}`, 8000);
+  const r = {};
+  for (const x of out.resultats || []) if (Number.isInteger(x.i) && libelles[x.i] !== undefined) r[libelles[x.i]] = x.fournisseur || null;
+  return r;
+}
+
+// Classe des fournisseurs : récurrent ou ponctuel, factures en ligne, récupération automatisable.
+async function classerFournisseurs(fournisseurs) {
+  const out = await appel(null, `Tu aides une petite entreprise française à organiser la récupération de ses factures fournisseurs.
+Pour chaque fournisseur ci-dessous (avec des exemples de libellés bancaires et le nombre de mois où il apparaît), indique :
+- "recurrent": true si c'est typiquement un abonnement / fournisseur à facturation régulière (télécom, énergie, SaaS, hébergement, assurance, loyer, banque, transport à compte…) ou s'il apparaît sur plusieurs mois ; false pour un achat ponctuel (commerce, restaurant…).
+- "en_ligne": true si les factures sont normalement téléchargeables dans un espace client en ligne (ex. Orange, OVH, Google, Amazon, G7, EDF, SNCF Connect, Free…).
+- "url": l'adresse de la page où l'on récupère les factures (espace client) si tu la connais avec certitude, sinon null.
+- "recuperation": "email" si les factures arrivent habituellement par e-mail (récupérables automatiquement depuis la boîte mail), "api" s'il existe une API/connecteur officiel pour les factures, "portail" si seulement via le site (téléchargement manuel), "non" si pas de facture en ligne (impôts, prêt, commerçant…).
+- "note": une phrase courte et utile (où trouver les factures, à quelle fréquence).
+Réponds UNIQUEMENT en JSON : { "resultats": [ { "i": <index>, "recurrent": bool, "en_ligne": bool, "url": string|null, "recuperation": "email"|"api"|"portail"|"non", "note": string } ] }
+Fournisseurs :
+${fournisseurs.map((f, i) => `${i}. ${f.nom} — ${f.mois} mois — ex. : ${f.exemples.join(' | ')}`).join('\n')}`, 8000);
+  return (out.resultats || []).filter((x) => Number.isInteger(x.i) && fournisseurs[x.i]).map((x) => ({
+    id: fournisseurs[x.i].id,
+    recurrent: !!x.recurrent,
+    en_ligne: !!x.en_ligne,
+    url: typeof x.url === 'string' && /^https?:\/\//.test(x.url) ? x.url : null,
+    recuperation: ['email', 'api', 'portail', 'non'].includes(x.recuperation) ? x.recuperation : null,
+    note: x.note ? String(x.note).slice(0, 300) : null,
+  }));
+}
+
+module.exports = { normaliserFournisseurs, classerFournisseurs, analyser, classer, extraireLignes, decouperPdf, PAIEMENTS, SOCIETES };

@@ -8,6 +8,7 @@ const crypto = require('crypto');
 const { pool, init } = require('./db');
 const { analyser, classer, extraireLignes, decouperPdf, PAIEMENTS } = require('./analyse');
 const releves = require('./releves');
+const fournisseurs = require('./fournisseurs');
 
 const app = express();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
@@ -211,6 +212,7 @@ async function traiterReleve(lotId, fichier, pages, info, cats, userId) {
   await releves.rapprocher();
   await pool.query("UPDATE lots SET statut='termine', erreur=$1 WHERE id=$2",
     [erreurs.length ? `Lecture impossible : ${erreurs.join(', ')}` : null, lotId]);
+  fournisseurs.mettreAJour(); // en arrière-plan
 }
 
 // Traitement en arrière-plan d'un lot (évite la limite de 30 s des requêtes Heroku).
@@ -449,7 +451,8 @@ app.get('/operations/new', requireAuth, async (req, res) => {
   let ligne = null;
   if (req.query.ligne) {
     const { rows } = await pool.query(
-      'SELECT l.*, c.entite_id, c.nature, c.banque FROM lignes l JOIN comptes c ON c.id = l.compte_id WHERE l.id=$1', [req.query.ligne]);
+      `SELECT l.*, c.entite_id, c.nature, c.banque, f.nom AS fournisseur FROM lignes l JOIN comptes c ON c.id = l.compte_id
+       LEFT JOIN fournisseurs f ON f.id = l.fournisseur_id WHERE l.id=$1`, [req.query.ligne]);
     ligne = rows[0] || null;
     if (ligne) {
       const cat = r.categories.find((c) => c.nom === ligne.categorie);
@@ -458,6 +461,7 @@ app.get('/operations/new', requireAuth, async (req, res) => {
         date_op: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`,
         type: Number(ligne.montant) < 0 ? 'depense' : 'recette', entite_id: ligne.entite_id,
         categorie_id: cat ? cat.id : null, libelle: ligne.libelle, montant_ttc: Math.abs(Number(ligne.montant)),
+        tiers: ligne.fournisseur || '',
         paiement: ligne.nature === 'carte' ? (ligne.banque === 'AMEX' ? 'AMEX' : 'CB CIC') : 'Virement / prélèvement',
       };
     }
@@ -496,12 +500,14 @@ app.post('/operations', requireAuth, upload.single('justificatif'), async (req, 
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING id`,
     [...v, f ? f.nom : null, f ? f.type : null, f ? f.data : null, req.session.user.id]);
   const opId = ins[0].id;
+  await fournisseurs.lierOperation(opId, v[5]);
   if (req.body.ligne_id) {
     await pool.query('UPDATE lignes SET operation_id=$1 WHERE id=$2 AND operation_id IS NULL',
       [opId, Number(req.body.ligne_id)]).catch(() => {});
   } else {
     releves.rapprocher().catch((e) => console.error('Rapprochement :', e.message));
   }
+  fournisseurs.mettreAJour();
   flash(req, 'Opération enregistrée.');
   if (req.body.ligne_id) {
     const { rows } = await pool.query('SELECT compte_id FROM lignes WHERE id=$1', [Number(req.body.ligne_id)]);
@@ -528,6 +534,7 @@ app.post('/operations/:id', requireAuth, upload.single('justificatif'), async (r
   await pool.query(
     `UPDATE operations SET entite_id=$1, date_op=$2, type=$3, categorie_id=$4, libelle=$5, tiers=$6,
        montant_ttc=$7, tva=$8, notes=$9, paiement=$10, carte=$11, updated_at=NOW() WHERE id=$12`, [...v, req.params.id]);
+  if (v[5]) await fournisseurs.lierOperation(req.params.id, v[5]);
   if (req.file) {
     await pool.query('UPDATE operations SET justif_nom=$1, justif_type=$2, justif_data=$3 WHERE id=$4',
       [req.file.originalname, req.file.mimetype, req.file.buffer, req.params.id]);
@@ -630,6 +637,10 @@ app.post('/lignes/creer', requireAuth, async (req, res) => {
       [l.entite_id, l.date_op, Number(l.montant) < 0 ? 'depense' : 'recette', cat ? cat.id : null, l.libelle,
         Math.abs(Number(l.montant)), paiement, req.session.user.id]);
     await pool.query('UPDATE lignes SET operation_id=$1 WHERE id=$2', [op.rows[0].id, id]);
+    if (l.fournisseur_id) {
+      await pool.query(`UPDATE operations SET fournisseur_id=$1, tiers=COALESCE(tiers, (SELECT nom FROM fournisseurs WHERE id=$1)) WHERE id=$2`,
+        [l.fournisseur_id, op.rows[0].id]);
+    }
     n++;
   }
   flash(req, n ? `${n} écriture(s) créée(s).` : 'Aucune écriture créée (société du compte à préciser ?).', n ? 'ok' : 'err');
@@ -672,6 +683,64 @@ app.post('/releves/:id/supprimer', requireAuth, async (req, res) => {
   const { rows } = await pool.query('DELETE FROM releves WHERE id=$1 RETURNING compte_id', [req.params.id]);
   flash(req, 'Relevé et ses lignes supprimés.');
   res.redirect(`/rapprochement?compte=${rows[0] ? rows[0].compte_id : ''}`);
+});
+
+// ---------- fournisseurs ----------
+app.get('/fournisseurs', requireAuth, async (req, res) => {
+  const { rows } = await pool.query(`
+    WITH mvts AS (
+      SELECT fournisseur_id, date_op, ABS(montant) AS m, id AS ligne_id, operation_id
+        FROM lignes WHERE fournisseur_id IS NOT NULL AND total_carte IS NULL AND NOT ignoree AND montant < 0
+      UNION ALL
+      SELECT o.fournisseur_id, o.date_op, o.montant_ttc, NULL, o.id
+        FROM operations o WHERE o.fournisseur_id IS NOT NULL AND o.type = 'depense'
+          AND NOT EXISTS (SELECT 1 FROM lignes x WHERE x.operation_id = o.id)
+    )
+    SELECT f.*,
+      COUNT(m.date_op)::int AS nb,
+      COUNT(DISTINCT date_trunc('month', m.date_op))::int AS mois,
+      COALESCE(SUM(m.m), 0) AS total,
+      MAX(m.date_op) AS dernier,
+      -- débits du relevé sans facture jointe
+      COUNT(m.ligne_id) FILTER (WHERE m.operation_id IS NULL
+        OR NOT EXISTS (SELECT 1 FROM operations o WHERE o.id = m.operation_id AND o.justif_nom IS NOT NULL))::int AS manquantes,
+      (SELECT string_agg(DISTINCT e.nom, ', ') FROM lignes l JOIN comptes c ON c.id = l.compte_id JOIN entites e ON e.id = c.entite_id
+        WHERE l.fournisseur_id = f.id) AS societes
+    FROM fournisseurs f LEFT JOIN mvts m ON m.fournisseur_id = f.id
+    GROUP BY f.id
+    HAVING COUNT(m.date_op) > 0
+    ORDER BY COALESCE(SUM(m.m), 0) DESC`);
+  for (const f of rows) {
+    // Récurrent si l'utilisateur l'a dit, ou constaté sur plusieurs mois, ou d'après l'analyse.
+    f.recurrent = f.modifie_main ? f.type === 'recurrent' : (f.mois >= 2 || f.type === 'recurrent');
+  }
+  const groupes = {
+    enLigne: rows.filter((f) => f.recurrent && f.en_ligne),
+    recurrents: rows.filter((f) => f.recurrent && !f.en_ligne),
+    ponctuels: rows.filter((f) => !f.recurrent),
+  };
+  const { rows: att } = await pool.query(
+    `SELECT (SELECT COUNT(*) FROM lignes WHERE NOT fournisseur_vu)::int AS lignes,
+            (SELECT COUNT(*) FROM fournisseurs WHERE classe_le IS NULL AND NOT modifie_main)::int AS fourn`);
+  res.render('fournisseurs', { groupes, enAttente: att[0], iaActive: !!process.env.ANTHROPIC_API_KEY });
+});
+
+app.post('/fournisseurs/analyser', requireAuth, async (req, res) => {
+  fournisseurs.mettreAJour();
+  flash(req, 'Analyse des fournisseurs lancée — la page se mettra à jour d\'ici quelques instants.');
+  res.redirect('/fournisseurs');
+});
+
+app.post('/fournisseurs/:id', requireAuth, async (req, res) => {
+  const b = req.body;
+  const url = b.url && /^https?:\/\//.test(b.url.trim()) ? b.url.trim() : null;
+  await pool.query(
+    `UPDATE fournisseurs SET type=$1, en_ligne=$2, url=$3, recuperation=$4, note=$5, modifie_main=TRUE WHERE id=$6`,
+    [b.type === 'recurrent' ? 'recurrent' : 'ponctuel', b.en_ligne === '1',
+      url, ['email', 'api', 'portail', 'non'].includes(b.recuperation) ? b.recuperation : null,
+      (b.note || '').trim() || null, req.params.id]);
+  flash(req, 'Fournisseur mis à jour.');
+  res.redirect('/fournisseurs');
 });
 
 // ---------- export CSV (pour l'expert-comptable) ----------

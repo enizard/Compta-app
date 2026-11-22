@@ -114,6 +114,22 @@ async function init() {
     );
     CREATE INDEX IF NOT EXISTS idx_lignes_compte ON lignes(compte_id, date_op);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_lignes_operation ON lignes(operation_id) WHERE operation_id IS NOT NULL;
+    CREATE TABLE IF NOT EXISTS fournisseurs (
+      id SERIAL PRIMARY KEY,
+      nom TEXT NOT NULL,
+      cle TEXT UNIQUE NOT NULL,
+      type TEXT CHECK (type IN ('recurrent','ponctuel')),
+      en_ligne BOOLEAN,
+      url TEXT,
+      recuperation TEXT,
+      note TEXT,
+      classe_le TIMESTAMPTZ,
+      modifie_main BOOLEAN NOT NULL DEFAULT FALSE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    ALTER TABLE lignes ADD COLUMN IF NOT EXISTS fournisseur_id INTEGER REFERENCES fournisseurs(id) ON DELETE SET NULL;
+    ALTER TABLE lignes ADD COLUMN IF NOT EXISTS fournisseur_vu BOOLEAN NOT NULL DEFAULT FALSE;
+    ALTER TABLE operations ADD COLUMN IF NOT EXISTS fournisseur_id INTEGER REFERENCES fournisseurs(id) ON DELETE SET NULL;
     CREATE TABLE IF NOT EXISTS "session" (
       "sid" varchar NOT NULL COLLATE "default" PRIMARY KEY,
       "sess" json NOT NULL,

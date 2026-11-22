@@ -1,5 +1,6 @@
 // Import des relevés (compte CIC, carte CIC, AMEX) et rapprochement avec les opérations saisies.
 const { pool } = require('./db');
+const { idFournisseur } = require('./fournisseurs');
 
 const BANQUE_CARTE = { 'CB CIC': 'CIC', AMEX: 'AMEX' };
 
@@ -35,10 +36,11 @@ async function insererLignes(releveId, compteId, page, lignes) {
       `SELECT 1 FROM lignes WHERE compte_id=$1 AND releve_id<>$2 AND date_op=$3 AND montant=$4 AND libelle=$5 LIMIT 1`,
       [compteId, releveId, l.date, l.montant, l.libelle]);
     if (rows[0]) { doublons++; continue; }
+    const fId = l.total_carte ? null : await idFournisseur(l.fournisseur);
     await pool.query(
-      `INSERT INTO lignes (releve_id, compte_id, page, date_op, libelle, montant, categorie, total_carte)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
-      [releveId, compteId, page, l.date, l.libelle, l.montant, l.categorie, l.total_carte]);
+      `INSERT INTO lignes (releve_id, compte_id, page, date_op, libelle, montant, categorie, total_carte, fournisseur_id, fournisseur_vu)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+      [releveId, compteId, page, l.date, l.libelle, l.montant, l.categorie, l.total_carte, fId, !!(fId || l.total_carte)]);
   }
   if (doublons) await pool.query('UPDATE releves SET nb_doublons = nb_doublons + $1 WHERE id=$2', [doublons, releveId]);
 }

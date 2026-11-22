@@ -59,7 +59,8 @@ async function mettreAJour() {
           (SELECT COUNT(DISTINCT date_trunc('month', d)) FROM (
              SELECT date_op d FROM lignes WHERE fournisseur_id = f.id
              UNION ALL SELECT date_op FROM operations WHERE fournisseur_id = f.id) x)::int AS mois,
-          ARRAY(SELECT DISTINCT libelle FROM lignes WHERE fournisseur_id = f.id LIMIT 3) AS exemples
+          ARRAY(SELECT DISTINCT libelle FROM lignes WHERE fournisseur_id = f.id LIMIT 3) AS exemples,
+          (SELECT SUM(montant) FROM lignes WHERE fournisseur_id = f.id) AS solde
         FROM fournisseurs f WHERE f.classe_le IS NULL AND NOT f.modifie_main ORDER BY f.id LIMIT 40`);
       if (!rows.length) break;
       const res = await classerFournisseurs(rows.map((r) => ({ ...r, exemples: r.exemples.length ? r.exemples : [r.nom] })));

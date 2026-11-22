@@ -211,7 +211,7 @@ Pour chaque fournisseur ci-dessous (avec des exemples de libellés bancaires, le
 - "note": une phrase courte et utile (où trouver les factures, à quelle fréquence).
 Réponds UNIQUEMENT en JSON : { "resultats": [ { "i": <index>, "recurrent": bool, "en_ligne": bool, "url": string|null, "recuperation": "email"|"api"|"portail"|"non", "note": string } ] }
 Fournisseurs :
-${fournisseurs.map((f, i) => `${i}. ${f.nom} — ${f.mois} mois — ex. : ${f.exemples.join(' | ')}`).join('\n')}`, 8000);
+${fournisseurs.map((f, i) => `${i}. ${f.nom} — ${f.mois} mois${f.solde !== null && f.solde !== undefined ? ` — total des mouvements ${Number(f.solde).toFixed(2)} €` : ''} — ex. : ${f.exemples.join(' | ')}`).join('\n')}`, 8000);
   return (out.resultats || []).filter((x) => Number.isInteger(x.i) && fournisseurs[x.i]).map((x) => ({
     id: fournisseurs[x.i].id,
     recurrent: !!x.recurrent,

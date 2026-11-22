@@ -67,5 +67,6 @@
 
 <% bloc('Récurrents — factures à récupérer en ligne', groupes.enLigne, 'Fournisseurs réguliers avec espace client : ceux marqués « automatisable » pourront être connectés pour récupérer les factures automatiquement.') %>
 <% bloc('Récurrents — sans espace en ligne', groupes.recurrents) %>
-<% bloc('Factures unitaires (ponctuels)', groupes.ponctuels) %>
+<% bloc('Factures unitaires — à récupérer en ligne', groupes.ponctuelsEnLigne, 'Achats ponctuels dont la facture est disponible dans un espace client ou par e-mail (ex. commande Nespresso, Amazon).') %>
+<% bloc('Factures unitaires — sans espace en ligne', groupes.ponctuels, 'Ticket ou facture à conserver / demander sur place.') %>
 <%- include('partials/footer') %>

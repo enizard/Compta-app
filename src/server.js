@@ -717,7 +717,8 @@ app.get('/fournisseurs', requireAuth, async (req, res) => {
   const groupes = {
     enLigne: rows.filter((f) => f.recurrent && f.en_ligne),
     recurrents: rows.filter((f) => f.recurrent && !f.en_ligne),
-    ponctuels: rows.filter((f) => !f.recurrent),
+    ponctuelsEnLigne: rows.filter((f) => !f.recurrent && f.en_ligne),
+    ponctuels: rows.filter((f) => !f.recurrent && !f.en_ligne),
   };
   const { rows: att } = await pool.query(
     `SELECT (SELECT COUNT(*) FROM lignes WHERE NOT fournisseur_vu)::int AS lignes,

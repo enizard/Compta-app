@@ -203,9 +203,9 @@ ${libelles.map((l, i) => `${i}. ${l}`).join('\n')}`, 8000);
 // Classe des fournisseurs : récurrent ou ponctuel, factures en ligne, récupération automatisable.
 async function classerFournisseurs(fournisseurs) {
   const out = await appel(null, `Tu aides une petite entreprise française à organiser la récupération de ses factures fournisseurs.
-Pour chaque fournisseur ci-dessous (avec des exemples de libellés bancaires et le nombre de mois où il apparaît), indique :
+Pour chaque fournisseur ci-dessous (avec des exemples de libellés bancaires, le nombre de mois où il apparaît et le sens des mouvements : un montant négatif est un paiement de l'entreprise, positif un encaissement), indique :
 - "recurrent": true si c'est typiquement un abonnement / fournisseur à facturation régulière (télécom, énergie, SaaS, hébergement, assurance, loyer, banque, transport à compte…) ou s'il apparaît sur plusieurs mois ; false pour un achat ponctuel (commerce, restaurant…).
-- "en_ligne": true si les factures sont normalement téléchargeables dans un espace client en ligne (ex. Orange, OVH, Google, Amazon, G7, EDF, SNCF Connect, Free…).
+- "en_ligne": true si les factures sont normalement téléchargeables dans un espace client en ligne ou envoyées par e-mail (ex. Orange, OVH, Google, Amazon, G7, EDF, SNCF Connect, Free…), y compris pour un achat ponctuel (ex. commande Nespresso, Amazon, Fnac) ; false si seul un ticket papier existe (boutique, restaurant, parking à l'horodateur…).
 - "url": l'adresse de la page où l'on récupère les factures (espace client) si tu la connais avec certitude, sinon null.
 - "recuperation": "email" si les factures arrivent habituellement par e-mail (récupérables automatiquement depuis la boîte mail), "api" s'il existe une API/connecteur officiel pour les factures, "portail" si seulement via le site (téléchargement manuel), "non" si pas de facture en ligne (impôts, prêt, commerçant…).
 - "note": une phrase courte et utile (où trouver les factures, à quelle fréquence).

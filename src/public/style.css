@@ -54,3 +54,4 @@ input.readonly { background: #f5f6f8; color: #6b7385; }
 .drop .big { font-size: 40px; }
 .drop.busy { pointer-events: none; opacity: .7; }
 @media (max-width: 860px) { .split { grid-template-columns: 1fr; } .apercu { position: static; } }
+input[hidden] { display: none !important; }

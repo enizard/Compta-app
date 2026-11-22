@@ -21,10 +21,14 @@
 <% } else if (lot.statut === 'interrompu') { %>
   <div class="flash err">Le traitement a été interrompu (redémarrage du serveur). Les tickets déjà lus sont ci-dessous ; redéposez le fichier pour le reste.</div>
 <% } else if (releve) { %>
-  <div class="flash">Relevé reconnu : <strong><%= releve.compte.libelle %></strong><% if (releve.periode_debut) { %>, du <%= releve.periode_debut.toLocaleDateString('fr-FR') %> au <%= releve.periode_fin ? releve.periode_fin.toLocaleDateString('fr-FR') : '?' %><% } %>.<br>
-    <%= releve.nb_lignes %> ligne(s) enregistrée(s)<% if (releve.nb_doublons) { %>, <%= releve.nb_doublons %> déjà importée(s) ignorée(s)<% } %> — <%= releve.nb_rapprochees %> rapprochée(s) automatiquement.</div>
+  <div class="flash">
+  <% relevesLot.forEach((r, i) => { %>
+    <%= i === 0 ? 'Relevé reconnu' : 'Détail de carte inclus' %> : <strong><%= r.compte.libelle %></strong><% if (r.periode_debut) { %>, du <%= r.periode_debut.toLocaleDateString('fr-FR') %> au <%= r.periode_fin ? r.periode_fin.toLocaleDateString('fr-FR') : '?' %><% } %> —
+    <%= r.nb_lignes %> ligne(s) enregistrée(s)<% if (r.nb_doublons) { %>, <%= r.nb_doublons %> déjà importée(s) ignorée(s)<% } %>, <%= r.nb_rapprochees %> rapprochée(s) automatiquement.<br>
+  <% }) %>
+  </div>
   <% if (lot.erreur) { %><div class="flash err"><%= lot.erreur %></div><% } %>
-  <% if (releve.nb_lignes === 0 && releve.nb_doublons > 0) { %>
+  <% if (relevesLot.every(r => r.nb_lignes === 0) && relevesLot.some(r => r.nb_doublons > 0)) { %>
     <div class="flash err"><strong>Ce relevé était déjà mis</strong> : toutes ses lignes avaient déjà été importées. Rien n'a été ajouté.</div>
   <% } %>
   <p><a class="btn" href="/rapprochement?compte=<%= releve.compte_id %>">Voir le rapprochement →</a></p>

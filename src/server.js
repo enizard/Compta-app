@@ -156,33 +156,58 @@ app.get('/', requireAuth, async (req, res) => {
   res.render('depot', { iaActive: !!process.env.ANTHROPIC_API_KEY, lots });
 });
 
-// Relevé : on extrait les lignes page par page puis on lance le rapprochement.
+// Relevé : on extrait les lignes page par page (dans l'ordre, pour suivre les sections),
+// on range le détail de carte d'un extrait de compte dans le compte « carte », puis on rapproche.
 async function traiterReleve(lotId, fichier, pages, info, cats, userId) {
   const { entites } = await refs();
   const ent = entites.find((e) => e.nom === info.societe_nom);
-  const compteId = await releves.trouverCompte(info, ent ? ent.id : null);
-  const { rows } = await pool.query(
+  const entiteId = ent ? ent.id : null;
+  const compteId = await releves.trouverCompte(info, entiteId);
+  const { rows: cpt } = await pool.query('SELECT nature FROM comptes WHERE id=$1', [compteId]);
+  const estCarte = cpt[0].nature === 'carte';
+  const nouveauReleve = async (cId, periode) => (await pool.query(
     `INSERT INTO releves (lot_id, compte_id, nom, mimetype, data, periode_debut, periode_fin, solde_debut, solde_fin)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,
-    [lotId, compteId, fichier.originalname, fichier.mimetype, fichier.buffer,
-      info.periode_debut || null, info.periode_fin || null, info.solde_debut ?? null, info.solde_fin ?? null]);
-  const releveId = rows[0].id;
+    [lotId, cId, fichier.originalname, fichier.mimetype, fichier.buffer,
+      periode ? info.periode_debut || null : null, periode ? info.periode_fin || null : null,
+      periode ? info.solde_debut ?? null : null, periode ? info.solde_fin ?? null : null])).rows[0].id;
+  const releveId = await nouveauReleve(compteId, true);
+  const relevesCarte = {}; // n° de carte → { releveId, compteId }
+
   const erreurs = [];
-  let suivant = 0;
-  async function travailleur() {
-    while (suivant < pages.length) {
-      const p = pages[suivant++];
-      try {
-        const lignes = await extraireLignes(p.buf, p.type, info, cats);
-        await releves.insererLignes(releveId, compteId, p.page, lignes);
-      } catch (e) {
-        console.error(`Relevé ${releveId} page ${p.page} :`, e.message);
-        erreurs.push(`page ${p.page}`);
+  let ctx = { ...info, sectionPrecedente: estCarte ? 'carte' : 'compte', carteNumero: null };
+  for (const p of pages) {
+    try {
+      const { lignes, finSection } = await extraireLignes(p.buf, p.type, ctx, cats);
+      const duCompte = [];
+      const parCarte = {};
+      for (const l of lignes) {
+        if (estCarte || l.section !== 'carte') { duCompte.push(l); continue; }
+        const num = l.carte_numero || ctx.carteNumero || 'carte';
+        (parCarte[num] = parCarte[num] || []).push(l);
+        ctx.carteNumero = l.carte_numero || ctx.carteNumero;
       }
-      await pool.query('UPDATE lots SET pages_traitees = pages_traitees + 1 WHERE id=$1', [lotId]);
+      await releves.insererLignes(releveId, compteId, p.page, duCompte);
+      for (const [num, ls] of Object.entries(parCarte)) {
+        if (!relevesCarte[num]) {
+          const cId = await releves.trouverCompte(
+            { banque: info.banque === 'AMEX' ? 'AMEX' : 'CIC', nature: 'releve_carte', numero: num === 'carte' ? null : num }, entiteId);
+          relevesCarte[num] = { compteId: cId, releveId: await nouveauReleve(cId, false) };
+        }
+        await releves.insererLignes(relevesCarte[num].releveId, relevesCarte[num].compteId, p.page, ls);
+      }
+      ctx = { ...ctx, sectionPrecedente: finSection };
+    } catch (e) {
+      console.error(`Relevé ${releveId} page ${p.page} :`, e.message);
+      erreurs.push(`page ${p.page}`);
     }
+    await pool.query('UPDATE lots SET pages_traitees = pages_traitees + 1 WHERE id=$1', [lotId]);
   }
-  await Promise.all([travailleur(), travailleur(), travailleur()]);
+  // Période des détails de carte = dates extrêmes de leurs lignes.
+  for (const { releveId: rId } of Object.values(relevesCarte)) {
+    await pool.query(`UPDATE releves r SET periode_debut = x.d1, periode_fin = x.d2
+      FROM (SELECT MIN(date_op) d1, MAX(date_op) d2 FROM lignes WHERE releve_id = $1) x WHERE r.id = $1`, [rId]);
+  }
   await releves.rapprocher();
   await pool.query("UPDATE lots SET statut='termine', erreur=$1 WHERE id=$2",
     [erreurs.length ? `Lecture impossible : ${erreurs.join(', ')}` : null, lotId]);
@@ -314,9 +339,10 @@ async function etatLot(id) {
       COUNT(l.id)::int AS nb_lignes,
       COUNT(l.id) FILTER (WHERE l.operation_id IS NOT NULL OR l.releve_carte_id IS NOT NULL)::int AS nb_rapprochees
     FROM releves r LEFT JOIN lignes l ON l.releve_id = r.id
-    WHERE r.lot_id = $1 GROUP BY r.id`, [id]);
-  const releve = rel[0] ? { ...rel[0], compte: await libelleCompte(rel[0].compte_id) } : null;
-  return { lot: rows[0], depots, releve };
+    WHERE r.lot_id = $1 GROUP BY r.id ORDER BY r.id`, [id]);
+  for (const r of rel) r.compte = await libelleCompte(r.compte_id);
+  const releve = rel[0] || null;
+  return { lot: rows[0], depots, releve, relevesLot: rel };
 }
 
 app.get('/lot/:id', requireAuth, async (req, res) => {
@@ -622,6 +648,24 @@ app.get('/releves/:id/fichier', requireAuth, async (req, res) => {
   res.set('Content-Type', rows[0].mimetype);
   res.set('Content-Disposition', `inline; filename*=UTF-8''${encodeURIComponent(rows[0].nom)}`);
   res.send(rows[0].data);
+});
+
+app.post('/releves/:id/relire', requireAuth, async (req, res) => {
+  const { rows } = await pool.query('SELECT lot_id, nom, mimetype, data FROM releves WHERE id=$1', [req.params.id]);
+  const r = rows[0];
+  if (!r) return res.redirect('/rapprochement');
+  // On supprime toutes les lignes issues de ce fichier (compte + détail carte) ; les opérations saisies sont conservées.
+  if (r.lot_id) {
+    await pool.query('DELETE FROM releves WHERE lot_id=$1', [r.lot_id]);
+    await pool.query('UPDATE lots SET hash=NULL WHERE id=$1', [r.lot_id]);
+  } else {
+    await pool.query('DELETE FROM releves WHERE id=$1', [req.params.id]);
+  }
+  const hash = crypto.createHash('sha256').update(r.data).digest('hex');
+  const lot = await pool.query('INSERT INTO lots (nom, created_by, hash) VALUES ($1,$2,$3) RETURNING id',
+    [r.nom, req.session.user.id, hash]);
+  mettreEnFile(lot.rows[0].id, { originalname: r.nom, mimetype: r.mimetype, buffer: r.data }, req.session.user.id);
+  res.redirect(`/lot/${lot.rows[0].id}`);
 });
 
 app.post('/releves/:id/supprimer', requireAuth, async (req, res) => {

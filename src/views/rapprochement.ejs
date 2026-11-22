@@ -54,7 +54,7 @@
           <small class="muted">(<%= l.op_date.toLocaleDateString('fr-FR') %><%= l.op_justif ? ', 📎' : '' %>)</small>
           <form method="post" action="/lignes/<%= l.id %>/defaire" class="inline"><button class="link">défaire</button></form>
         <% } else if (l.total_carte && l.releve_carte_id) { %>
-          <span class="pos">✓</span> Total <%= l.total_carte %> = relevé de carte
+          <span class="pos">✓</span> Total <%= l.total_carte %> = détail de carte
           <% if (l.rc_debut) { %>du <%= l.rc_debut.toLocaleDateString('fr-FR') %> au <%= l.rc_fin ? l.rc_fin.toLocaleDateString('fr-FR') : '?' %><% } %>
           (<%= l.rc_nb %> opérations)
           <form method="post" action="/lignes/<%= l.id %>/defaire" class="inline"><button class="link">défaire</button></form>
@@ -98,7 +98,10 @@
       <td><%= r.periode_debut ? r.periode_debut.toLocaleDateString('fr-FR') + ' → ' + (r.periode_fin ? r.periode_fin.toLocaleDateString('fr-FR') : '?') : '' %></td>
       <td class="r"><%= r.nb %></td>
       <td class="r"><%= fmt(r.total) %></td>
-      <td><form method="post" action="/releves/<%= r.id %>/supprimer" class="inline" onsubmit="return confirm('Supprimer ce relevé et ses lignes ?')"><button class="link">supprimer</button></form></td>
+      <td>
+        <form method="post" action="/releves/<%= r.id %>/relire" class="inline" onsubmit="return confirm('Relire ce relevé ? Ses lignes seront réimportées (les rapprochements de ce relevé seront refaits).')"><button class="link">relire</button></form> ·
+        <form method="post" action="/releves/<%= r.id %>/supprimer" class="inline" onsubmit="return confirm('Supprimer ce relevé et ses lignes ?')"><button class="link">supprimer</button></form>
+      </td>
     </tr>
   <% }) %>
   </tbody>

@@ -121,19 +121,31 @@ const PROMPT_CLASSER = `Regarde ce document (première page) et dis de quoi il s
 
 function promptLignes(ctx, categories) {
   return `Cette page fait partie d'un ${ctx.nature === 'releve_carte' ? 'relevé des opérations de carte' : 'relevé de compte bancaire'} ${ctx.banque || ''}` +
-    `${ctx.periode_debut ? ` couvrant la période du ${ctx.periode_debut} au ${ctx.periode_fin}` : ''}.
+    `${ctx.periode_debut ? ` couvrant la période du ${ctx.periode_debut} au ${ctx.periode_fin}` : ''}.` +
+    `${ctx.sectionPrecedente === 'carte' ? `\nLa page précédente se terminait DANS une section de détail des opérations carte${ctx.carteNumero ? ` (carte ${ctx.carteNumero})` : ''} : si cette page commence par des lignes de commerçants, elles en font partie.` : ''}
 Extrais TOUTES les lignes de mouvement de cette page. Réponds UNIQUEMENT en JSON :
 { "lignes": [ {
   "date": "AAAA-MM-JJ",       // date de l'opération (déduis l'année de la période du relevé)
   "libelle": string,          // libellé complet tel qu'imprimé (lignes de détail regroupées)
   "montant": number,          // NÉGATIF pour un débit / paiement, POSITIF pour un crédit / remboursement
+  "section": "compte" | "carte",
+  "carte_numero": string|null,
   "total_carte": "CB CIC" | "AMEX" | null,
   "categorie": string|null    // une valeur EXACTE de : ${JSON.stringify(categories)}, ou null
-} ] }
-- N'inclus PAS les lignes de solde (ancien/nouveau solde), de totaux de colonnes, de report, ni les sous-totaux.
-- "total_carte" : uniquement pour une ligne de RELEVÉ DE COMPTE qui est le débit global mensuel d'une carte` +
-  ` (ex. "FACTURE CARTE", "FACTURES CARTES DU …", "CARTE X1234 DEBIT DIFFERE" → "CB CIC" ; prélèvement "AMERICAN EXPRESS" → "AMEX"). Sinon null.
-- Montants : nombres décimaux avec un point. Si la page ne contient aucune ligne, renvoie { "lignes": [] }.`;
+} ],
+  "fin_de_page_section": "compte" | "carte" }
+IMPORTANT — détail de carte à débit différé : un extrait de compte CIC contient souvent, après les mouvements du compte,` +
+  ` une section de DÉTAIL des paiements d'une carte (titres du type "Détail des opérations carte", "Relevé carte n°…",` +
+  ` "Carte n° XXXX", "Opérations carte du … au …"). Ces paiements ne sont PAS débités un par un sur le compte :` +
+  ` leur total est débité en une seule ligne du compte ("RELEVE CARTE …", "FACTURE CARTE …").
+- Ligne de mouvement du compte (virements, prélèvements, frais, la ligne "RELEVE CARTE" elle-même…) → "section": "compte".
+- Ligne de la section de détail carte → "section": "carte", "carte_numero" = numéro de carte ou de relevé carte indiqué dans le titre de la section (chiffres visibles), sinon null.
+- Pour un relevé de carte (y compris AMEX), toutes les lignes sont "section": "carte".
+- "fin_de_page_section" : la section dans laquelle se termine la page.
+- N'inclus PAS les lignes de solde (ancien/nouveau solde), de totaux de colonnes ou de section, de report, ni les sous-totaux.
+- "total_carte" : uniquement pour une ligne "section": "compte" qui est le débit global d'une carte` +
+  ` (ex. "RELEVE CARTE …", "FACTURE CARTE …", "CARTE X1234 DEBIT DIFFERE" → "CB CIC" ; prélèvement "AMERICAN EXPRESS" → "AMEX"). Sinon null.
+- Montants : nombres décimaux avec un point. Si la page ne contient aucune ligne, renvoie { "lignes": [], "fin_de_page_section": "compte" }.`;
 }
 
 async function classer(buffer, mimetype) {
@@ -145,15 +157,18 @@ async function classer(buffer, mimetype) {
 
 async function extraireLignes(buffer, mimetype, ctx, categories) {
   const out = await appel(await toContentBlock(buffer, mimetype), promptLignes(ctx, categories), 16000);
-  return (Array.isArray(out.lignes) ? out.lignes : [])
+  const lignes = (Array.isArray(out.lignes) ? out.lignes : [])
     .filter((l) => l && l.date && l.libelle && l.montant !== null && !Number.isNaN(Number(l.montant)))
     .map((l) => ({
       date: l.date,
       libelle: String(l.libelle).trim(),
       montant: Number(l.montant),
-      total_carte: ['CB CIC', 'AMEX'].includes(l.total_carte) ? l.total_carte : null,
+      section: ctx.nature === 'releve_carte' || l.section === 'carte' ? 'carte' : 'compte',
+      carte_numero: l.carte_numero ? String(l.carte_numero).replace(/\D/g, '').slice(-4) || null : null,
+      total_carte: l.section === 'carte' ? null : (['CB CIC', 'AMEX'].includes(l.total_carte) ? l.total_carte : null),
       categorie: categories.includes(l.categorie) ? l.categorie : null,
     }));
+  return { lignes, finSection: out.fin_de_page_section === 'carte' ? 'carte' : 'compte' };
 }
 
 // Découpe un PDF en pages individuelles (chaque page devient un PDF d'une page).

@@ -3,8 +3,8 @@
   <h1>Connexion</h1>
   <% if (error) { %><div class="flash err"><%= error %></div><% } %>
   <form method="post" action="/login">
-    <label>Email <input type="email" name="email" required autofocus></label>
-    <label>Mot de passe <input type="password" name="password" required></label>
+    <label>Email <input type="email" name="email" autocomplete="username" required autofocus></label>
+    <label>Mot de passe <input type="password" name="password" autocomplete="current-password" required></label>
     <button>Se connecter</button>
   </form>
 </div>

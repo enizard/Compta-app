@@ -5,8 +5,8 @@
   <% if (error) { %><div class="flash err"><%= error %></div><% } %>
   <form method="post" action="/setup">
     <label>Nom <input name="nom" required autofocus></label>
-    <label>Email <input type="email" name="email" required></label>
-    <label>Mot de passe (8 caractères min.) <input type="password" name="password" minlength="8" required></label>
+    <label>Email <input type="email" name="email" autocomplete="username" required></label>
+    <label>Mot de passe (8 caractères min.) <input type="password" name="password" autocomplete="new-password" minlength="8" required></label>
     <button>Créer le compte</button>
   </form>
 </div>

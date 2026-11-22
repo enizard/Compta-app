@@ -11,7 +11,14 @@
   </div>
 <% } %>
 <div class="card">
+  <% const position = typeof locals.position !== 'undefined' ? locals.position : null; %>
   <h1><%= op.id ? 'Modifier l\'opération' : (depot ? 'Vérifier et enregistrer' : 'Nouvelle opération') %></h1>
+  <% if (position && position.total > 1) { %>
+    <p class="muted">Ticket <%= position.rang %> sur <%= position.total %> — page <%= depot.page %> du scan — <%= position.restants %> restant(s) à valider · <a href="/lot/<%= depot.lot_id %>?liste=1">voir la liste</a></p>
+  <% } %>
+  <% if (depot && depot.resultat && depot.resultat.position) { %>
+    <p class="muted">Sur la page : <strong><%= depot.resultat.position %></strong></p>
+  <% } %>
   <% if (depot && depot.erreur) { %>
     <div class="flash err">L'analyse automatique n'a pas fonctionné (<%= depot.erreur %>). Complétez à la main.</div>
   <% } else if (depot && depot.resultat) { %>
@@ -69,6 +76,11 @@
   <% if (op.id) { %>
     <form method="post" action="/operations/<%= op.id %>/delete" onsubmit="return confirm('Supprimer cette opération ?')">
       <button class="danger">Supprimer l'opération</button>
+    </form>
+  <% } %>
+  <% if (depot) { %>
+    <form method="post" action="/depot/<%= depot.id %>/ignorer" class="ignorer">
+      <button class="secondary">Ignorer ce ticket</button>
     </form>
   <% } %>
 </div>

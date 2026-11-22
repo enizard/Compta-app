@@ -49,6 +49,16 @@ async function init() {
     CREATE INDEX IF NOT EXISTS idx_ops_entite_date ON operations(entite_id, date_op);
     ALTER TABLE operations ADD COLUMN IF NOT EXISTS paiement TEXT;
     ALTER TABLE operations ADD COLUMN IF NOT EXISTS carte TEXT;
+    CREATE TABLE IF NOT EXISTS lots (
+      id SERIAL PRIMARY KEY,
+      nom TEXT NOT NULL,
+      statut TEXT NOT NULL DEFAULT 'en_cours',
+      total_pages INTEGER,
+      pages_traitees INTEGER NOT NULL DEFAULT 0,
+      erreur TEXT,
+      created_by INTEGER REFERENCES users(id),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
     CREATE TABLE IF NOT EXISTS depots (
       id SERIAL PRIMARY KEY,
       nom TEXT NOT NULL,
@@ -59,6 +69,10 @@ async function init() {
       created_by INTEGER REFERENCES users(id),
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
+    ALTER TABLE depots ADD COLUMN IF NOT EXISTS lot_id INTEGER REFERENCES lots(id) ON DELETE CASCADE;
+    ALTER TABLE depots ADD COLUMN IF NOT EXISTS page INTEGER NOT NULL DEFAULT 1;
+    ALTER TABLE depots ADD COLUMN IF NOT EXISTS ordre INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE depots ADD COLUMN IF NOT EXISTS statut TEXT NOT NULL DEFAULT 'a_valider';
     CREATE TABLE IF NOT EXISTS "session" (
       "sid" varchar NOT NULL COLLATE "default" PRIMARY KEY,
       "sess" json NOT NULL,
@@ -67,7 +81,12 @@ async function init() {
     CREATE INDEX IF NOT EXISTS "IDX_session_expire" ON "session" ("expire");
   `);
 
-  await pool.query("DELETE FROM depots WHERE created_at < NOW() - INTERVAL '7 days'");
+  // Un lot interrompu par un redémarrage du serveur est marqué en erreur.
+  await pool.query("UPDATE lots SET statut='interrompu' WHERE statut='en_cours'");
+  // Ménage : lots entièrement traités depuis plus de 7 jours.
+  await pool.query(`DELETE FROM lots l WHERE l.created_at < NOW() - INTERVAL '7 days'
+    AND NOT EXISTS (SELECT 1 FROM depots d WHERE d.lot_id = l.id AND d.statut = 'a_valider')`);
+  await pool.query("DELETE FROM depots WHERE lot_id IS NULL");
   for (const nom of ENTITES) {
     await pool.query('INSERT INTO entites (nom) VALUES ($1) ON CONFLICT DO NOTHING', [nom]);
   }

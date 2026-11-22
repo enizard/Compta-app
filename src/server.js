@@ -6,7 +6,7 @@ const bcrypt = require('bcryptjs');
 const multer = require('multer');
 const crypto = require('crypto');
 const { pool, init } = require('./db');
-const { analyser, PAIEMENTS } = require('./analyse');
+const { analyser, decouperPdf, PAIEMENTS } = require('./analyse');
 
 const app = express();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
@@ -139,31 +139,103 @@ app.post('/login', async (req, res) => {
 app.post('/logout', (req, res) => req.session.destroy(() => res.redirect('/login')));
 
 // ---------- opérations ----------
-app.get('/', requireAuth, (req, res) => res.render('depot', { iaActive: !!process.env.ANTHROPIC_API_KEY }));
+app.get('/', requireAuth, async (req, res) => {
+  const { rows: lots } = await pool.query(`
+    SELECT l.id, l.nom, l.statut, l.created_at,
+      COUNT(d.id) FILTER (WHERE d.statut = 'a_valider')::int AS restants
+    FROM lots l LEFT JOIN depots d ON d.lot_id = l.id
+    GROUP BY l.id HAVING l.statut = 'en_cours' OR COUNT(d.id) FILTER (WHERE d.statut = 'a_valider') > 0
+    ORDER BY l.id DESC`);
+  res.render('depot', { iaActive: !!process.env.ANTHROPIC_API_KEY, lots });
+});
+
+// Traitement en arrière-plan d'un lot (évite la limite de 30 s des requêtes Heroku).
+async function traiterLot(lotId, fichier, userId) {
+  try {
+    const { categories } = await refs();
+    const cats = categories.map((c) => c.nom);
+    let pages;
+    if (fichier.mimetype === 'application/pdf') {
+      pages = (await decouperPdf(fichier.buffer)).map((buf, i) => ({ buf, type: 'application/pdf', page: i + 1 }));
+    } else {
+      pages = [{ buf: fichier.buffer, type: fichier.mimetype, page: 1 }];
+    }
+    await pool.query('UPDATE lots SET total_pages=$1 WHERE id=$2', [pages.length, lotId]);
+    const base = fichier.originalname.replace(/\.[^.]+$/, '');
+    const ext = fichier.mimetype === 'application/pdf' ? '.pdf' : (fichier.originalname.match(/\.[^.]+$/) || ['.jpg'])[0];
+
+    let suivant = 0;
+    async function travailleur() {
+      while (suivant < pages.length) {
+        const p = pages[suivant++];
+        const nom = pages.length > 1 ? `${base} - page ${p.page}${ext}` : fichier.originalname;
+        try {
+          const docs = process.env.ANTHROPIC_API_KEY ? await analyser(p.buf, p.type, cats) : [{}];
+          for (let k = 0; k < docs.length; k++) {
+            await pool.query(
+              `INSERT INTO depots (lot_id, page, ordre, nom, mimetype, data, resultat, created_by)
+               VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`, [lotId, p.page, k, nom, p.type, p.buf, docs[k], userId]);
+          }
+        } catch (e) {
+          console.error(`Lot ${lotId} page ${p.page} :`, e.message);
+          await pool.query(
+            `INSERT INTO depots (lot_id, page, ordre, nom, mimetype, data, erreur, created_by)
+             VALUES ($1,$2,0,$3,$4,$5,$6,$7)`, [lotId, p.page, nom, p.type, p.buf, e.message, userId]);
+        }
+        await pool.query('UPDATE lots SET pages_traitees = pages_traitees + 1 WHERE id=$1', [lotId]);
+      }
+    }
+    await Promise.all([travailleur(), travailleur(), travailleur()]);
+    await pool.query("UPDATE lots SET statut='termine' WHERE id=$1", [lotId]);
+  } catch (e) {
+    console.error(`Lot ${lotId} échoué :`, e);
+    await pool.query("UPDATE lots SET statut='erreur', erreur=$1 WHERE id=$2", [e.message, lotId]);
+  }
+}
 
 app.post('/depot', requireAuth, upload.single('fichier'), async (req, res) => {
   const f = req.file;
   if (!f) { flash(req, 'Aucun fichier reçu.', 'err'); return res.redirect('/'); }
   if (!/^image\/|^application\/pdf$/.test(f.mimetype)) { flash(req, 'Format non pris en charge (PDF ou photo).', 'err'); return res.redirect('/'); }
-  const { rows } = await pool.query(
-    'INSERT INTO depots (nom, mimetype, data, created_by) VALUES ($1,$2,$3,$4) RETURNING id',
-    [f.originalname, f.mimetype, f.buffer, req.session.user.id]);
-  const id = rows[0].id;
-  try {
-    const { categories } = await refs();
-    const r = await analyser(f.buffer, f.mimetype, categories.map((c) => c.nom));
-    await pool.query('UPDATE depots SET resultat=$1 WHERE id=$2', [r, id]);
-  } catch (e) {
-    console.error('Analyse échouée', e.message);
-    await pool.query('UPDATE depots SET erreur=$1 WHERE id=$2', [e.message, id]);
+  const { rows } = await pool.query('INSERT INTO lots (nom, created_by) VALUES ($1,$2) RETURNING id',
+    [f.originalname, req.session.user.id]);
+  traiterLot(rows[0].id, f, req.session.user.id); // sans await : tourne en arrière-plan
+  res.redirect(`/lot/${rows[0].id}`);
+});
+
+async function etatLot(id) {
+  const { rows } = await pool.query('SELECT * FROM lots WHERE id=$1', [id]);
+  if (!rows[0]) return null;
+  const { rows: depots } = await pool.query(
+    `SELECT id, page, ordre, statut, erreur, resultat->>'fournisseur' AS fournisseur,
+       resultat->>'montant_ttc' AS montant_ttc, resultat->>'date' AS date
+     FROM depots WHERE lot_id=$1 ORDER BY page, ordre`, [id]);
+  return { lot: rows[0], depots };
+}
+
+app.get('/lot/:id', requireAuth, async (req, res) => {
+  const e = await etatLot(req.params.id);
+  if (!e) return res.redirect('/');
+  const aValider = e.depots.filter((d) => d.statut === 'a_valider');
+  // Un seul ticket et traitement terminé : on va directement au formulaire.
+  if (e.lot.statut === 'termine' && e.depots.length === 1 && aValider.length === 1 && !req.query.liste) {
+    return res.redirect(`/depot/${aValider[0].id}`);
   }
-  res.redirect(`/depot/${id}`);
+  res.render('lot', { ...e, aValider });
+});
+
+app.get('/lot/:id/etat.json', requireAuth, async (req, res) => {
+  const e = await etatLot(req.params.id);
+  if (!e) return res.status(404).json({});
+  res.json({ statut: e.lot.statut, total: e.lot.total_pages, faites: e.lot.pages_traitees, tickets: e.depots.length });
 });
 
 app.get('/depot/:id', requireAuth, async (req, res) => {
-  const { rows } = await pool.query('SELECT id, nom, mimetype, resultat, erreur FROM depots WHERE id=$1', [req.params.id]);
+  const { rows } = await pool.query(
+    'SELECT id, lot_id, page, nom, mimetype, resultat, erreur, statut FROM depots WHERE id=$1', [req.params.id]);
   const d = rows[0];
   if (!d) return res.redirect('/');
+  if (d.statut !== 'a_valider') return res.redirect(d.lot_id ? `/lot/${d.lot_id}?liste=1` : '/');
   const r = d.resultat || {};
   const { entites, categories } = await refs();
   const ent = entites.find((e) => e.nom === r.societe_nom);
@@ -181,7 +253,14 @@ app.get('/depot/:id', requireAuth, async (req, res) => {
     carte: r.carte || '',
     notes: r.mentions_manuscrites ? `Manuscrit : ${r.mentions_manuscrites}` : '',
   };
-  res.render('operation_form', { op, depot: d, entites, categories });
+  let position = null;
+  if (d.lot_id) {
+    const { rows: tous } = await pool.query(
+      'SELECT id, statut FROM depots WHERE lot_id=$1 ORDER BY page, ordre', [d.lot_id]);
+    position = { rang: tous.findIndex((x) => x.id === d.id) + 1, total: tous.length,
+      restants: tous.filter((x) => x.statut === 'a_valider').length };
+  }
+  res.render('operation_form', { op, depot: d, position, entites, categories });
 });
 
 app.get('/depot/:id/fichier', requireAuth, async (req, res) => {
@@ -190,6 +269,21 @@ app.get('/depot/:id/fichier', requireAuth, async (req, res) => {
   res.set('Content-Type', rows[0].mimetype);
   res.set('Content-Disposition', `inline; filename*=UTF-8''${encodeURIComponent(rows[0].nom)}`);
   res.send(rows[0].data);
+});
+
+async function prochainDepot(depotId) {
+  const { rows } = await pool.query(
+    `SELECT d2.id, d1.lot_id FROM depots d1
+     LEFT JOIN depots d2 ON d2.lot_id = d1.lot_id AND d2.statut = 'a_valider'
+     WHERE d1.id = $1 ORDER BY d2.page, d2.ordre LIMIT 1`, [depotId]);
+  if (!rows[0] || !rows[0].lot_id) return '/';
+  return rows[0].id ? `/depot/${rows[0].id}` : `/lot/${rows[0].lot_id}?liste=1`;
+}
+
+app.post('/depot/:id/ignorer', requireAuth, async (req, res) => {
+  await pool.query("UPDATE depots SET statut='ignore' WHERE id=$1", [req.params.id]);
+  flash(req, 'Ticket ignoré.');
+  res.redirect(await prochainDepot(req.params.id));
 });
 
 app.get('/operations', requireAuth, async (req, res) => {
@@ -245,9 +339,11 @@ app.post('/operations', requireAuth, upload.single('justificatif'), async (req, 
        paiement, carte, justif_nom, justif_type, justif_data, created_by)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
     [...v, f ? f.nom : null, f ? f.type : null, f ? f.data : null, req.session.user.id]);
-  if (depotId) await pool.query('DELETE FROM depots WHERE id=$1', [depotId]);
   flash(req, 'Opération enregistrée.');
-  if (depotId) return res.redirect('/');
+  if (depotId) {
+    await pool.query("UPDATE depots SET statut='enregistre' WHERE id=$1", [depotId]);
+    return res.redirect(await prochainDepot(depotId));
+  }
   res.redirect(req.body.encore ? `/operations/new?entite=${v[0]}` : '/operations');
 });
 

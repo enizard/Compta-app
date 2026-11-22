@@ -1,0 +1,48 @@
+<%- include('partials/header') %>
+<h1><%= lot.nom %></h1>
+<% if (lot.statut === 'en_cours') { %>
+  <div class="card">
+    <p><strong>Lecture en cours…</strong> <span id="prog"><%= lot.pages_traitees %> / <%= lot.total_pages || '?' %> page(s) lue(s)</span>, <span id="nb"><%= depots.length %></span> ticket(s) trouvé(s).</p>
+    <div class="barre"><div id="barre" style="width: <%= lot.total_pages ? Math.round(100 * lot.pages_traitees / lot.total_pages) : 0 %>%"></div></div>
+    <% if (aValider.length) { %><p><a class="btn" href="/depot/<%= aValider[0].id %>">Commencer à valider sans attendre</a></p><% } %>
+  </div>
+  <script>
+    setInterval(async () => {
+      const r = await fetch('/lot/<%= lot.id %>/etat.json').then((x) => x.json()).catch(() => null);
+      if (!r) return;
+      if (r.statut !== 'en_cours') return location.reload();
+      document.getElementById('prog').textContent = `${r.faites} / ${r.total || '?'} page(s) lue(s)`;
+      document.getElementById('nb').textContent = r.tickets;
+      if (r.total) document.getElementById('barre').style.width = Math.round(100 * r.faites / r.total) + '%';
+    }, 2500);
+  </script>
+<% } else if (lot.statut === 'erreur') { %>
+  <div class="flash err">Le traitement a échoué : <%= lot.erreur %></div>
+<% } else if (lot.statut === 'interrompu') { %>
+  <div class="flash err">Le traitement a été interrompu (redémarrage du serveur). Les tickets déjà lus sont ci-dessous ; redéposez le fichier pour le reste.</div>
+<% } else { %>
+  <div class="flash"><%= depots.length %> ticket(s) trouvé(s) sur <%= lot.total_pages %> page(s). <%= aValider.length ? aValider.length + ' à valider.' : 'Tout est traité.' %></div>
+  <% if (aValider.length) { %><p><a class="btn" href="/depot/<%= aValider[0].id %>">Valider les tickets un par un →</a></p><% } %>
+<% } %>
+
+<% if (depots.length) { %>
+<table>
+  <thead><tr><th>Page</th><th>Fournisseur</th><th>Date</th><th class="r">Montant TTC</th><th>Statut</th></tr></thead>
+  <tbody>
+  <% depots.forEach(d => { %>
+    <tr>
+      <td><%= d.page %></td>
+      <td><%= d.fournisseur || (d.erreur ? 'Lecture impossible' : '—') %></td>
+      <td><%= d.date ? d.date.split('-').reverse().join('/') : '' %></td>
+      <td class="r"><%= d.montant_ttc ? fmt(d.montant_ttc) : '' %></td>
+      <td>
+        <% if (d.statut === 'a_valider') { %><a href="/depot/<%= d.id %>">À valider</a>
+        <% } else if (d.statut === 'enregistre') { %><span class="pos">Enregistré</span>
+        <% } else { %><span class="muted">Ignoré</span><% } %>
+      </td>
+    </tr>
+  <% }) %>
+  </tbody>
+</table>
+<% } %>
+<%- include('partials/footer') %>

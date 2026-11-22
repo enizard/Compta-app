@@ -6,18 +6,34 @@
 <form id="f" method="post" action="/depot" enctype="multipart/form-data">
   <label class="drop" id="zone">
     <span class="big">📄</span>
-    <strong>Glissez une facture (PDF) ou une photo de ticket ici</strong>
+    <strong>Glissez une facture, une photo de ticket ou un scan PDF de plusieurs tickets ici</strong>
     <span class="muted">ou cliquez pour choisir un fichier / prendre une photo</span>
     <input type="file" name="fichier" id="fichier" accept="application/pdf,image/*" hidden>
   </label>
 </form>
+<% if (lots.length) { %>
+  <h2>Dépôts en attente de validation</h2>
+  <table>
+    <thead><tr><th>Fichier</th><th>Déposé le</th><th>État</th><th></th></tr></thead>
+    <tbody>
+    <% lots.forEach(l => { %>
+      <tr>
+        <td><%= l.nom %></td>
+        <td><%= l.created_at.toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short', timeZone: 'Europe/Paris' }) %></td>
+        <td><%= l.statut === 'en_cours' ? 'Lecture en cours' : l.restants + ' ticket(s) à valider' %></td>
+        <td><a href="/lot/<%= l.id %>?liste=1">Ouvrir</a></td>
+      </tr>
+    <% }) %>
+    </tbody>
+  </table>
+<% } %>
 <p class="muted">Sur les tickets, notez à la main la société (LMF, SAN, BMG, SCI) et le paiement (CB CIC / CIC, AMEX, Avance CC / CC) : ils seront reconnus automatiquement.</p>
 <script>
   const zone = document.getElementById('zone'), input = document.getElementById('fichier'), form = document.getElementById('f');
   function envoyer() {
     zone.classList.add('busy');
     zone.querySelector('strong').textContent = 'Analyse en cours…';
-    zone.querySelector('.muted').textContent = 'Lecture du document, quelques secondes';
+    zone.querySelector('.muted').textContent = 'Envoi du document…';
     form.submit();
   }
   input.addEventListener('change', () => input.files.length && envoyer());

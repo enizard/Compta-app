@@ -55,3 +55,7 @@ input.readonly { background: #f5f6f8; color: #6b7385; }
 .drop.busy { pointer-events: none; opacity: .7; }
 @media (max-width: 860px) { .split { grid-template-columns: 1fr; } .apercu { position: static; } }
 input[hidden] { display: none !important; }
+
+.barre { height: 8px; background: #e8ecf4; border-radius: 4px; overflow: hidden; margin: 8px 0 12px; }
+.barre div { height: 100%; background: #2557d6; transition: width .4s; }
+form.ignorer { margin-top: 12px; }

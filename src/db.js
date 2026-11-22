@@ -74,6 +74,8 @@ async function init() {
     ALTER TABLE depots ADD COLUMN IF NOT EXISTS ordre INTEGER NOT NULL DEFAULT 0;
     ALTER TABLE depots ADD COLUMN IF NOT EXISTS statut TEXT NOT NULL DEFAULT 'a_valider';
     ALTER TABLE lots ADD COLUMN IF NOT EXISTS nature TEXT;
+    ALTER TABLE lots ADD COLUMN IF NOT EXISTS hash TEXT;
+    CREATE INDEX IF NOT EXISTS idx_lots_hash ON lots(hash);
     CREATE TABLE IF NOT EXISTS comptes (
       id SERIAL PRIMARY KEY,
       banque TEXT NOT NULL,

@@ -146,7 +146,8 @@ app.get('/', requireAuth, async (req, res) => {
     SELECT l.id, l.nom, l.statut, l.nature, l.created_at, l.total_pages, l.pages_traitees,
       COUNT(d.id) FILTER (WHERE d.statut = 'a_valider')::int AS restants,
       (SELECT COUNT(*) FROM lignes x JOIN releves r ON r.id = x.releve_id WHERE r.lot_id = l.id)::int AS nb_lignes,
-      (SELECT r.compte_id FROM releves r WHERE r.lot_id = l.id LIMIT 1) AS compte_id
+      (SELECT r.compte_id FROM releves r WHERE r.lot_id = l.id LIMIT 1) AS compte_id,
+      (SELECT COALESCE(SUM(r.nb_doublons),0) FROM releves r WHERE r.lot_id = l.id)::int AS nb_doublons
     FROM lots l LEFT JOIN depots d ON d.lot_id = l.id
     GROUP BY l.id
     HAVING l.statut = 'en_cours' OR COUNT(d.id) FILTER (WHERE d.statut = 'a_valider') > 0
@@ -250,15 +251,30 @@ app.post('/depot', requireAuth, upload.array('fichier', 50), async (req, res) =>
   if (!fichiers.length) { flash(req, 'Aucun fichier reçu.', 'err'); return res.redirect('/'); }
   const refuses = fichiers.filter((f) => !/^image\/|^application\/pdf$/.test(f.mimetype));
   const ids = [];
+  const dejaMis = [];
+  const vus = new Set();
   for (const f of fichiers.filter((x) => !refuses.includes(x))) {
-    const { rows } = await pool.query('INSERT INTO lots (nom, created_by) VALUES ($1,$2) RETURNING id',
-      [f.originalname, req.session.user.id]);
+    const hash = crypto.createHash('sha256').update(f.buffer).digest('hex');
+    if (vus.has(hash)) { dejaMis.push(`${f.originalname} (en double dans ce dépôt)`); continue; }
+    vus.add(hash);
+    const { rows: ex } = await pool.query(
+      "SELECT nom, created_at FROM lots WHERE hash=$1 AND statut NOT IN ('erreur','interrompu') ORDER BY id LIMIT 1", [hash]);
+    if (ex[0]) {
+      const quand = ex[0].created_at.toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short', timeZone: 'Europe/Paris' });
+      dejaMis.push(`${f.originalname} (déjà déposé le ${quand}${ex[0].nom !== f.originalname ? ` sous le nom ${ex[0].nom}` : ''})`);
+      continue;
+    }
+    const { rows } = await pool.query('INSERT INTO lots (nom, created_by, hash) VALUES ($1,$2,$3) RETURNING id',
+      [f.originalname, req.session.user.id, hash]);
     ids.push(rows[0].id);
     mettreEnFile(rows[0].id, f, req.session.user.id);
   }
-  if (refuses.length) flash(req, `Format non pris en charge (PDF ou photo) : ${refuses.map((f) => f.originalname).join(', ')}`, 'err');
-  if (ids.length === 1 && !refuses.length) return res.redirect(`/lot/${ids[0]}`);
-  if (ids.length) flash(req, `${ids.length} fichier(s) en cours de traitement.${refuses.length ? ` Refusé(s) : ${refuses.map((f) => f.originalname).join(', ')}` : ''}`, refuses.length ? 'err' : 'ok');
+  const msgs = [];
+  if (ids.length) msgs.push(`${ids.length} fichier(s) en cours de traitement.`);
+  if (dejaMis.length) msgs.push(`Déjà mis, non retraité : ${dejaMis.join(' ; ')}.`);
+  if (refuses.length) msgs.push(`Format non pris en charge (PDF ou photo) : ${refuses.map((f) => f.originalname).join(', ')}.`);
+  if (ids.length === 1 && !dejaMis.length && !refuses.length) return res.redirect(`/lot/${ids[0]}`);
+  flash(req, msgs.join(' '), dejaMis.length || refuses.length ? 'err' : 'ok');
   res.redirect('/');
 });
 
@@ -289,8 +305,10 @@ async function etatLot(id) {
   if (!rows[0]) return null;
   const { rows: depots } = await pool.query(
     `SELECT id, page, ordre, statut, erreur, resultat->>'fournisseur' AS fournisseur,
-       resultat->>'montant_ttc' AS montant_ttc, resultat->>'date' AS date
-     FROM depots WHERE lot_id=$1 ORDER BY page, ordre`, [id]);
+       resultat->>'montant_ttc' AS montant_ttc, resultat->>'date' AS date,
+       EXISTS (SELECT 1 FROM operations o WHERE o.montant_ttc = (d.resultat->>'montant_ttc')::numeric
+         AND o.date_op = (d.resultat->>'date')::date) AS doublon
+     FROM depots d WHERE lot_id=$1 ORDER BY page, ordre`, [id]);
   const { rows: rel } = await pool.query(`
     SELECT r.id, r.compte_id, r.periode_debut, r.periode_fin, r.nb_doublons,
       COUNT(l.id)::int AS nb_lignes,
@@ -349,7 +367,15 @@ app.get('/depot/:id', requireAuth, async (req, res) => {
     position = { rang: tous.findIndex((x) => x.id === d.id) + 1, total: tous.length,
       restants: tous.filter((x) => x.statut === 'a_valider').length };
   }
-  res.render('operation_form', { op, depot: d, position, entites, categories });
+  // Doublon probable : une opération déjà saisie avec le même montant et la même date.
+  let doublons = [];
+  if (r.montant_ttc && r.date) {
+    ({ rows: doublons } = await pool.query(
+      `SELECT o.id, o.date_op, o.tiers, o.libelle, o.montant_ttc, e.nom AS entite FROM operations o
+       JOIN entites e ON e.id = o.entite_id
+       WHERE o.montant_ttc = $1 AND o.date_op = $2 ORDER BY o.id`, [r.montant_ttc, r.date]));
+  }
+  res.render('operation_form', { op, depot: d, position, doublons, entites, categories });
 });
 
 app.get('/depot/:id/fichier', requireAuth, async (req, res) => {

@@ -19,6 +19,12 @@
   <% if (depot && depot.resultat && depot.resultat.position) { %>
     <p class="muted">Sur la page : <strong><%= depot.resultat.position %></strong></p>
   <% } %>
+  <% const doublons = typeof locals.doublons !== 'undefined' ? locals.doublons : []; %>
+  <% if (doublons.length) { %>
+    <div class="flash err"><strong>Déjà mis ?</strong> Une opération identique existe déjà :
+      <% doublons.forEach(o => { %><br>· <a href="/operations/<%= o.id %>/edit" target="_blank"><%= o.date_op.toLocaleDateString('fr-FR') %> — <%= o.tiers || o.libelle %> — <%= fmt(o.montant_ttc) %> € (<%= o.entite %>)</a><% }) %>
+      <br>Si c'est le même ticket, cliquez sur « Ignorer ce ticket » en bas.</div>
+  <% } %>
   <% if (depot && depot.erreur) { %>
     <div class="flash err">L'analyse automatique n'a pas fonctionné (<%= depot.erreur %>). Complétez à la main.</div>
   <% } else if (depot && depot.resultat) { %>

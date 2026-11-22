@@ -24,6 +24,9 @@
   <div class="flash">Relevé reconnu : <strong><%= releve.compte.libelle %></strong><% if (releve.periode_debut) { %>, du <%= releve.periode_debut.toLocaleDateString('fr-FR') %> au <%= releve.periode_fin ? releve.periode_fin.toLocaleDateString('fr-FR') : '?' %><% } %>.<br>
     <%= releve.nb_lignes %> ligne(s) enregistrée(s)<% if (releve.nb_doublons) { %>, <%= releve.nb_doublons %> déjà importée(s) ignorée(s)<% } %> — <%= releve.nb_rapprochees %> rapprochée(s) automatiquement.</div>
   <% if (lot.erreur) { %><div class="flash err"><%= lot.erreur %></div><% } %>
+  <% if (releve.nb_lignes === 0 && releve.nb_doublons > 0) { %>
+    <div class="flash err"><strong>Ce relevé était déjà mis</strong> : toutes ses lignes avaient déjà été importées. Rien n'a été ajouté.</div>
+  <% } %>
   <p><a class="btn" href="/rapprochement?compte=<%= releve.compte_id %>">Voir le rapprochement →</a></p>
 <% } else { %>
   <div class="flash"><%= depots.length %> ticket(s) trouvé(s) sur <%= lot.total_pages %> page(s). <%= aValider.length ? aValider.length + ' à valider.' : 'Tout est traité.' %></div>
@@ -41,7 +44,7 @@
       <td><%= d.date ? d.date.split('-').reverse().join('/') : '' %></td>
       <td class="r"><%= d.montant_ttc ? fmt(d.montant_ttc) : '' %></td>
       <td>
-        <% if (d.statut === 'a_valider') { %><a href="/depot/<%= d.id %>">À valider</a>
+        <% if (d.statut === 'a_valider') { %><a href="/depot/<%= d.id %>">À valider</a><% if (d.doublon) { %> <span class="neg">· déjà mis ?</span><% } %>
         <% } else if (d.statut === 'enregistre') { %><span class="pos">Enregistré</span>
         <% } else { %><span class="muted">Ignoré</span><% } %>
       </td>

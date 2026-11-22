@@ -35,6 +35,7 @@
       <tr id="ed<%= f.id %>" hidden>
         <td colspan="9">
           <form method="post" action="/fournisseurs/<%= f.id %>" class="grid">
+            <label>Nom (un nom existant fusionne les deux)<input name="nom" value="<%= f.nom %>"></label>
             <label>Type
               <select name="type">
                 <option value="recurrent" <%= f.recurrent ? 'selected' : '' %>>Récurrent</option>

@@ -733,12 +733,27 @@ app.post('/fournisseurs/analyser', requireAuth, async (req, res) => {
 
 app.post('/fournisseurs/:id', requireAuth, async (req, res) => {
   const b = req.body;
+  let id = Number(req.params.id);
   const url = b.url && /^https?:\/\//.test(b.url.trim()) ? b.url.trim() : null;
+  // Renommage : si le nouveau nom correspond à un fournisseur existant, on fusionne.
+  const nom = (b.nom || '').trim();
+  if (nom) {
+    const k = fournisseurs.cle(nom);
+    const { rows: ex } = await pool.query('SELECT id FROM fournisseurs WHERE cle=$1 AND id<>$2', [k, id]);
+    if (ex[0]) {
+      await pool.query('UPDATE lignes SET fournisseur_id=$1 WHERE fournisseur_id=$2', [ex[0].id, id]);
+      await pool.query('UPDATE operations SET fournisseur_id=$1 WHERE fournisseur_id=$2', [ex[0].id, id]);
+      await pool.query('DELETE FROM fournisseurs WHERE id=$1', [id]);
+      id = ex[0].id;
+    } else if (k) {
+      await pool.query('UPDATE fournisseurs SET nom=$1, cle=$2 WHERE id=$3', [nom.slice(0, 80), k, id]);
+    }
+  }
   await pool.query(
     `UPDATE fournisseurs SET type=$1, en_ligne=$2, url=$3, recuperation=$4, note=$5, modifie_main=TRUE WHERE id=$6`,
     [b.type === 'recurrent' ? 'recurrent' : 'ponctuel', b.en_ligne === '1',
       url, ['email', 'api', 'portail', 'non'].includes(b.recuperation) ? b.recuperation : null,
-      (b.note || '').trim() || null, req.params.id]);
+      (b.note || '').trim() || null, id]);
   flash(req, 'Fournisseur mis à jour.');
   res.redirect('/fournisseurs');
 });

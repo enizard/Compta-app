@@ -1,0 +1,54 @@
+<%- include('partials/header') %>
+<h1>Administration</h1>
+
+<h2>Utilisateurs</h2>
+<table>
+  <thead><tr><th>Nom</th><th>Email</th><th>Rôle</th><th>Nouveau mot de passe</th><th></th></tr></thead>
+  <tbody>
+  <% users.forEach(u => { %>
+    <tr>
+      <td><%= u.nom %></td>
+      <td><%= u.email %></td>
+      <td><%= u.is_admin ? 'Administrateur' : 'Utilisateur' %></td>
+      <td>
+        <form method="post" action="/admin/users/<%= u.id %>/password" class="inline">
+          <input type="password" name="password" minlength="8" placeholder="8 caractères min." required>
+          <button class="secondary">Changer</button>
+        </form>
+      </td>
+      <td>
+        <% if (u.id !== user.id) { %>
+        <form method="post" action="/admin/users/<%= u.id %>/delete" class="inline" onsubmit="return confirm('Supprimer cet utilisateur ?')">
+          <button class="danger">Supprimer</button>
+        </form>
+        <% } %>
+      </td>
+    </tr>
+  <% }) %>
+  </tbody>
+</table>
+
+<div class="card">
+  <h3>Ajouter un utilisateur</h3>
+  <form method="post" action="/admin/users" class="grid">
+    <label>Nom<input name="nom" required></label>
+    <label>Email<input type="email" name="email" required></label>
+    <label>Mot de passe<input type="password" name="password" minlength="8" required></label>
+    <label class="inline"><input type="checkbox" name="is_admin" value="1"> Administrateur</label>
+    <div class="wide"><button>Créer</button></div>
+  </form>
+</div>
+
+<div class="cols">
+  <div class="card">
+    <h3>Sociétés</h3>
+    <ul><% entites.forEach(e => { %><li><%= e.nom %></li><% }) %></ul>
+    <form method="post" action="/admin/entites" class="inline"><input name="nom" placeholder="Nouvelle société" required> <button class="secondary">Ajouter</button></form>
+  </div>
+  <div class="card">
+    <h3>Catégories</h3>
+    <ul><% categories.forEach(c => { %><li><%= c.nom %></li><% }) %></ul>
+    <form method="post" action="/admin/categories" class="inline"><input name="nom" placeholder="Nouvelle catégorie" required> <button class="secondary">Ajouter</button></form>
+  </div>
+</div>
+<%- include('partials/footer') %>

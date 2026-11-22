@@ -1,0 +1,22 @@
+{
+  "name": "compta-app",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Suivi simple de comptabilité multi-sociétés",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js"
+  },
+  "engines": {
+    "node": "22.x"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "connect-pg-simple": "^10.0.0",
+    "ejs": "^3.1.10",
+    "express": "^5.1.0",
+    "express-session": "^1.18.1",
+    "multer": "^2.0.2",
+    "pg": "^8.13.1"
+  }
+}

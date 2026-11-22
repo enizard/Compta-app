@@ -1,0 +1,48 @@
+<%- include('partials/header') %>
+<div class="card">
+  <h1><%= op.id ? 'Modifier l\'opération' : 'Nouvelle opération' %></h1>
+  <form method="post" action="<%= op.id ? '/operations/' + op.id : '/operations' %>" enctype="multipart/form-data" class="grid">
+    <label>Société *
+      <select name="entite_id" required>
+        <option value="">—</option>
+        <% entites.forEach(e => { %><option value="<%= e.id %>" <%= op.entite_id === e.id ? 'selected' : '' %>><%= e.nom %></option><% }) %>
+      </select>
+    </label>
+    <label>Date *<input type="date" name="date_op" value="<%= op.date_op %>" required></label>
+    <label>Type *
+      <select name="type">
+        <option value="depense" <%= op.type === 'depense' ? 'selected' : '' %>>Dépense</option>
+        <option value="recette" <%= op.type === 'recette' ? 'selected' : '' %>>Recette</option>
+      </select>
+    </label>
+    <label>Catégorie
+      <select name="categorie_id">
+        <option value="">—</option>
+        <% categories.forEach(c => { %><option value="<%= c.id %>" <%= op.categorie_id === c.id ? 'selected' : '' %>><%= c.nom %></option><% }) %>
+      </select>
+    </label>
+    <label class="wide">Libellé *<input name="libelle" value="<%= op.libelle || '' %>" required></label>
+    <label>Tiers (client / fournisseur)<input name="tiers" value="<%= op.tiers || '' %>"></label>
+    <label>Montant TTC (€) *<input name="montant_ttc" inputmode="decimal" value="<%= op.montant_ttc != null ? String(op.montant_ttc).replace('.', ',') : '' %>" required></label>
+    <label>dont TVA (€)<input name="tva" inputmode="decimal" value="<%= op.tva != null && Number(op.tva) ? String(op.tva).replace('.', ',') : '' %>"></label>
+    <label>Justificatif (PDF, image — 10 Mo max)
+      <input type="file" name="justificatif" accept=".pdf,image/*">
+      <% if (op.justif_nom) { %>
+        <small>Actuel : <a href="/operations/<%= op.id %>/justificatif" target="_blank"><%= op.justif_nom %></a>
+        — <label class="inline"><input type="checkbox" name="suppr_justif" value="1"> supprimer</label></small>
+      <% } %>
+    </label>
+    <label class="wide">Notes<textarea name="notes" rows="2"><%= op.notes || '' %></textarea></label>
+    <div class="wide actions">
+      <button>Enregistrer</button>
+      <% if (!op.id) { %><button name="encore" value="1" class="secondary">Enregistrer et saisir une autre</button><% } %>
+      <a href="/operations">Annuler</a>
+    </div>
+  </form>
+  <% if (op.id) { %>
+    <form method="post" action="/operations/<%= op.id %>/delete" onsubmit="return confirm('Supprimer cette opération ?')">
+      <button class="danger">Supprimer l'opération</button>
+    </form>
+  <% } %>
+</div>
+<%- include('partials/footer') %>

@@ -1,0 +1,12 @@
+<%- include('partials/header') %>
+<div class="card narrow">
+  <h1>Mon compte</h1>
+  <p><%= user.nom %> — <%= user.email %></p>
+  <h3>Changer mon mot de passe</h3>
+  <form method="post" action="/compte/password">
+    <label>Mot de passe actuel<input type="password" name="actuel" required></label>
+    <label>Nouveau mot de passe (8 caractères min.)<input type="password" name="nouveau" minlength="8" required></label>
+    <button>Modifier</button>
+  </form>
+</div>
+<%- include('partials/footer') %>

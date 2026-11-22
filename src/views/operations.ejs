@@ -1,0 +1,65 @@
+<%- include('partials/header') %>
+<div class="head">
+  <h1>Opérations</h1>
+  <div>
+    <a class="btn" href="/operations/new<%= q.entite ? '?entite=' + q.entite : '' %>">+ Nouvelle opération</a>
+    <a class="btn secondary" href="/export.csv?<%= qs %>">Exporter CSV</a>
+  </div>
+</div>
+
+<form class="filters" method="get" action="/operations">
+  <select name="entite">
+    <option value="">Toutes les sociétés</option>
+    <% entites.forEach(e => { %><option value="<%= e.id %>" <%= String(q.entite) === String(e.id) ? 'selected' : '' %>><%= e.nom %></option><% }) %>
+  </select>
+  <select name="annee">
+    <option value="">Toutes les années</option>
+    <% const ans = [...new Set([new Date().getFullYear(), ...annees])].sort((a,b)=>b-a); %>
+    <% ans.forEach(a => { %><option <%= String(q.annee) === String(a) ? 'selected' : '' %>><%= a %></option><% }) %>
+  </select>
+  <select name="mois">
+    <option value="">Tous les mois</option>
+    <% ['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'].forEach((m,i) => { %>
+      <option value="<%= i+1 %>" <%= String(q.mois) === String(i+1) ? 'selected' : '' %>><%= m %></option>
+    <% }) %>
+  </select>
+  <select name="type">
+    <option value="">Recettes et dépenses</option>
+    <option value="recette" <%= q.type === 'recette' ? 'selected' : '' %>>Recettes</option>
+    <option value="depense" <%= q.type === 'depense' ? 'selected' : '' %>>Dépenses</option>
+  </select>
+  <select name="categorie">
+    <option value="">Toutes catégories</option>
+    <% categories.forEach(c => { %><option value="<%= c.id %>" <%= String(q.categorie) === String(c.id) ? 'selected' : '' %>><%= c.nom %></option><% }) %>
+  </select>
+  <input name="q" placeholder="Rechercher…" value="<%= q.q || '' %>">
+  <button>Filtrer</button>
+</form>
+
+<div class="totals">
+  <div><span>Recettes</span><strong class="pos"><%= fmt(tot.recettes) %> €</strong></div>
+  <div><span>Dépenses</span><strong class="neg"><%= fmt(tot.depenses) %> €</strong></div>
+  <div><span>Solde</span><strong><%= fmt(tot.recettes - tot.depenses) %> €</strong></div>
+  <div><span>Opérations</span><strong><%= ops.length %></strong></div>
+</div>
+
+<table>
+  <thead><tr><th>Date</th><th>Société</th><th>Libellé</th><th>Tiers</th><th>Catégorie</th><th class="r">Montant TTC</th><th class="r">TVA</th><th>Justif.</th><th></th></tr></thead>
+  <tbody>
+  <% ops.forEach(o => { %>
+    <tr>
+      <td><%= o.date_op.toLocaleDateString('fr-FR') %></td>
+      <td><%= o.entite %></td>
+      <td><%= o.libelle %></td>
+      <td><%= o.tiers || '' %></td>
+      <td><%= o.categorie || '' %></td>
+      <td class="r <%= o.type === 'recette' ? 'pos' : 'neg' %>"><%= o.type === 'recette' ? '+' : '−' %> <%= fmt(o.montant_ttc) %></td>
+      <td class="r"><%= Number(o.tva) ? fmt(o.tva) : '' %></td>
+      <td><% if (o.justif_nom) { %><a href="/operations/<%= o.id %>/justificatif" target="_blank">📎</a><% } else { %><span class="muted">—</span><% } %></td>
+      <td><a href="/operations/<%= o.id %>/edit">Modifier</a></td>
+    </tr>
+  <% }) %>
+  <% if (!ops.length) { %><tr><td colspan="9" class="muted center">Aucune opération.</td></tr><% } %>
+  </tbody>
+</table>
+<%- include('partials/footer') %>

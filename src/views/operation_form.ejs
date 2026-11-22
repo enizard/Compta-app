@@ -1,7 +1,24 @@
 <%- include('partials/header') %>
+<% const depot = typeof locals.depot !== 'undefined' ? locals.depot : null; %>
+<div class="<%= depot ? 'split' : '' %>">
+<% if (depot) { %>
+  <div class="card apercu">
+    <% if (depot.mimetype === 'application/pdf') { %>
+      <iframe src="/depot/<%= depot.id %>/fichier"></iframe>
+    <% } else { %>
+      <a href="/depot/<%= depot.id %>/fichier" target="_blank"><img src="/depot/<%= depot.id %>/fichier" alt="Document déposé"></a>
+    <% } %>
+  </div>
+<% } %>
 <div class="card">
-  <h1><%= op.id ? 'Modifier l\'opération' : 'Nouvelle opération' %></h1>
+  <h1><%= op.id ? 'Modifier l\'opération' : (depot ? 'Vérifier et enregistrer' : 'Nouvelle opération') %></h1>
+  <% if (depot && depot.erreur) { %>
+    <div class="flash err">L'analyse automatique n'a pas fonctionné (<%= depot.erreur %>). Complétez à la main.</div>
+  <% } else if (depot && depot.resultat) { %>
+    <div class="flash">Informations extraites automatiquement — vérifiez avant d'enregistrer<% if (depot.resultat.confiance && depot.resultat.confiance !== 'haute') { %> (confiance <%= depot.resultat.confiance %>)<% } %>.</div>
+  <% } %>
   <form method="post" action="<%= op.id ? '/operations/' + op.id : '/operations' %>" enctype="multipart/form-data" class="grid">
+    <% if (depot) { %><input type="hidden" name="depot_id" value="<%= depot.id %>"><% } %>
     <label>Société *
       <select name="entite_id" required>
         <option value="">—</option>
@@ -25,6 +42,15 @@
     <label>Tiers (client / fournisseur)<input name="tiers" value="<%= op.tiers || '' %>"></label>
     <label>Montant TTC (€) *<input name="montant_ttc" inputmode="decimal" value="<%= op.montant_ttc != null ? String(op.montant_ttc).replace('.', ',') : '' %>" required></label>
     <label>dont TVA (€)<input name="tva" inputmode="decimal" value="<%= op.tva != null && Number(op.tva) ? String(op.tva).replace('.', ',') : '' %>"></label>
+    <label>Montant HT (€)<input id="ht" readonly tabindex="-1" class="readonly"></label>
+    <label>Paiement
+      <select name="paiement">
+        <option value="">—</option>
+        <% PAIEMENTS.forEach(p => { %><option <%= op.paiement === p ? 'selected' : '' %>><%= p %></option><% }) %>
+      </select>
+    </label>
+    <label>Carte utilisée<input name="carte" value="<%= op.carte || '' %>" placeholder="ex. VISA **** 1234"></label>
+    <% if (depot) { %><div><small class="muted">Justificatif : <%= depot.nom %> (joint automatiquement)</small></div><% } else { %>
     <label>Justificatif (PDF, image — 10 Mo max)
       <input type="file" name="justificatif" accept=".pdf,image/*">
       <% if (op.justif_nom) { %>
@@ -32,11 +58,12 @@
         — <label class="inline"><input type="checkbox" name="suppr_justif" value="1"> supprimer</label></small>
       <% } %>
     </label>
+    <% } %>
     <label class="wide">Notes<textarea name="notes" rows="2"><%= op.notes || '' %></textarea></label>
     <div class="wide actions">
       <button>Enregistrer</button>
-      <% if (!op.id) { %><button name="encore" value="1" class="secondary">Enregistrer et saisir une autre</button><% } %>
-      <a href="/operations">Annuler</a>
+      <% if (!op.id && !depot) { %><button name="encore" value="1" class="secondary">Enregistrer et saisir une autre</button><% } %>
+      <a href="<%= depot ? '/' : '/operations' %>">Annuler</a>
     </div>
   </form>
   <% if (op.id) { %>
@@ -45,4 +72,16 @@
     </form>
   <% } %>
 </div>
+</div>
+<script>
+  (function () {
+    const f = document.querySelector('form.grid');
+    const num = (v) => parseFloat(String(v || '').replace(/\s/g, '').replace(',', '.')) || 0;
+    function maj() {
+      const ttc = num(f.montant_ttc.value), tva = num(f.tva.value);
+      document.getElementById('ht').value = f.montant_ttc.value ? (ttc - tva).toFixed(2).replace('.', ',') : '';
+    }
+    f.montant_ttc.addEventListener('input', maj); f.tva.addEventListener('input', maj); maj();
+  })();
+</script>
 <%- include('partials/footer') %>

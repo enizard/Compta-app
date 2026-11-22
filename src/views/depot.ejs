@@ -1,0 +1,28 @@
+<%- include('partials/header') %>
+<h1>Déposer une facture ou un ticket</h1>
+<% if (!iaActive) { %>
+  <div class="flash err">La lecture automatique n'est pas encore activée (clé API Claude à configurer). Le document sera joint, mais les champs seront à remplir à la main.</div>
+<% } %>
+<form id="f" method="post" action="/depot" enctype="multipart/form-data">
+  <label class="drop" id="zone">
+    <span class="big">📄</span>
+    <strong>Glissez une facture (PDF) ou une photo de ticket ici</strong>
+    <span class="muted">ou cliquez pour choisir un fichier / prendre une photo</span>
+    <input type="file" name="fichier" id="fichier" accept="application/pdf,image/*" hidden>
+  </label>
+</form>
+<p class="muted">Sur les tickets, notez à la main la société (LMF, SAN, BMG, SCI) et le paiement (CB CIC / CIC, AMEX, Avance CC / CC) : ils seront reconnus automatiquement.</p>
+<script>
+  const zone = document.getElementById('zone'), input = document.getElementById('fichier'), form = document.getElementById('f');
+  function envoyer() {
+    zone.classList.add('busy');
+    zone.querySelector('strong').textContent = 'Analyse en cours…';
+    zone.querySelector('.muted').textContent = 'Lecture du document, quelques secondes';
+    form.submit();
+  }
+  input.addEventListener('change', () => input.files.length && envoyer());
+  ['dragenter', 'dragover'].forEach((e) => zone.addEventListener(e, (ev) => { ev.preventDefault(); zone.classList.add('over'); }));
+  ['dragleave', 'drop'].forEach((e) => zone.addEventListener(e, (ev) => { ev.preventDefault(); zone.classList.remove('over'); }));
+  zone.addEventListener('drop', (ev) => { if (ev.dataTransfer.files.length) { input.files = ev.dataTransfer.files; envoyer(); } });
+</script>
+<%- include('partials/footer') %>

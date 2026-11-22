@@ -47,6 +47,18 @@ async function init() {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
     CREATE INDEX IF NOT EXISTS idx_ops_entite_date ON operations(entite_id, date_op);
+    ALTER TABLE operations ADD COLUMN IF NOT EXISTS paiement TEXT;
+    ALTER TABLE operations ADD COLUMN IF NOT EXISTS carte TEXT;
+    CREATE TABLE IF NOT EXISTS depots (
+      id SERIAL PRIMARY KEY,
+      nom TEXT NOT NULL,
+      mimetype TEXT NOT NULL,
+      data BYTEA NOT NULL,
+      resultat JSONB,
+      erreur TEXT,
+      created_by INTEGER REFERENCES users(id),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
     CREATE TABLE IF NOT EXISTS "session" (
       "sid" varchar NOT NULL COLLATE "default" PRIMARY KEY,
       "sess" json NOT NULL,
@@ -55,6 +67,7 @@ async function init() {
     CREATE INDEX IF NOT EXISTS "IDX_session_expire" ON "session" ("expire");
   `);
 
+  await pool.query("DELETE FROM depots WHERE created_at < NOW() - INTERVAL '7 days'");
   for (const nom of ENTITES) {
     await pool.query('INSERT INTO entites (nom) VALUES ($1) ON CONFLICT DO NOTHING', [nom]);
   }

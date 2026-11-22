@@ -44,7 +44,7 @@
 </div>
 
 <table>
-  <thead><tr><th>Date</th><th>Société</th><th>Libellé</th><th>Tiers</th><th>Catégorie</th><th class="r">Montant TTC</th><th class="r">TVA</th><th>Justif.</th><th></th></tr></thead>
+  <thead><tr><th>Date</th><th>Société</th><th>Libellé</th><th>Tiers</th><th>Catégorie</th><th>Paiement</th><th class="r">Montant TTC</th><th class="r">TVA</th><th>Justif.</th><th></th></tr></thead>
   <tbody>
   <% ops.forEach(o => { %>
     <tr>
@@ -53,13 +53,14 @@
       <td><%= o.libelle %></td>
       <td><%= o.tiers || '' %></td>
       <td><%= o.categorie || '' %></td>
+      <td><%= o.paiement || '' %></td>
       <td class="r <%= o.type === 'recette' ? 'pos' : 'neg' %>"><%= o.type === 'recette' ? '+' : '−' %> <%= fmt(o.montant_ttc) %></td>
       <td class="r"><%= Number(o.tva) ? fmt(o.tva) : '' %></td>
       <td><% if (o.justif_nom) { %><a href="/operations/<%= o.id %>/justificatif" target="_blank">📎</a><% } else { %><span class="muted">—</span><% } %></td>
       <td><a href="/operations/<%= o.id %>/edit">Modifier</a></td>
     </tr>
   <% }) %>
-  <% if (!ops.length) { %><tr><td colspan="9" class="muted center">Aucune opération.</td></tr><% } %>
+  <% if (!ops.length) { %><tr><td colspan="10" class="muted center">Aucune opération.</td></tr><% } %>
   </tbody>
 </table>
 <%- include('partials/footer') %>

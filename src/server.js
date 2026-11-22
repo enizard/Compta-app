@@ -6,6 +6,7 @@ const bcrypt = require('bcryptjs');
 const multer = require('multer');
 const crypto = require('crypto');
 const { pool, init } = require('./db');
+const { analyser, PAIEMENTS } = require('./analyse');
 
 const app = express();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
@@ -46,6 +47,7 @@ const toNum = (v) => {
 app.use(async (req, res, next) => {
   res.locals.user = req.session.user || null;
   res.locals.fmt = fmt;
+  res.locals.PAIEMENTS = PAIEMENTS;
   res.locals.flash = req.session.flash || null;
   delete req.session.flash;
   next();
@@ -89,7 +91,7 @@ function buildFilters(q) {
 
 const OPS_SELECT = `
   SELECT o.id, o.date_op, o.type, o.libelle, o.tiers, o.montant_ttc, o.tva, o.notes,
-         o.justif_nom, o.entite_id, o.categorie_id,
+         o.justif_nom, o.entite_id, o.categorie_id, o.paiement, o.carte,
          e.nom AS entite, c.nom AS categorie, u.nom AS auteur
   FROM operations o
   JOIN entites e ON e.id = o.entite_id
@@ -137,7 +139,58 @@ app.post('/login', async (req, res) => {
 app.post('/logout', (req, res) => req.session.destroy(() => res.redirect('/login')));
 
 // ---------- opérations ----------
-app.get('/', requireAuth, (req, res) => res.redirect('/operations'));
+app.get('/', requireAuth, (req, res) => res.render('depot', { iaActive: !!process.env.ANTHROPIC_API_KEY }));
+
+app.post('/depot', requireAuth, upload.single('fichier'), async (req, res) => {
+  const f = req.file;
+  if (!f) { flash(req, 'Aucun fichier reçu.', 'err'); return res.redirect('/'); }
+  if (!/^image\/|^application\/pdf$/.test(f.mimetype)) { flash(req, 'Format non pris en charge (PDF ou photo).', 'err'); return res.redirect('/'); }
+  const { rows } = await pool.query(
+    'INSERT INTO depots (nom, mimetype, data, created_by) VALUES ($1,$2,$3,$4) RETURNING id',
+    [f.originalname, f.mimetype, f.buffer, req.session.user.id]);
+  const id = rows[0].id;
+  try {
+    const { categories } = await refs();
+    const r = await analyser(f.buffer, f.mimetype, categories.map((c) => c.nom));
+    await pool.query('UPDATE depots SET resultat=$1 WHERE id=$2', [r, id]);
+  } catch (e) {
+    console.error('Analyse échouée', e.message);
+    await pool.query('UPDATE depots SET erreur=$1 WHERE id=$2', [e.message, id]);
+  }
+  res.redirect(`/depot/${id}`);
+});
+
+app.get('/depot/:id', requireAuth, async (req, res) => {
+  const { rows } = await pool.query('SELECT id, nom, mimetype, resultat, erreur FROM depots WHERE id=$1', [req.params.id]);
+  const d = rows[0];
+  if (!d) return res.redirect('/');
+  const r = d.resultat || {};
+  const { entites, categories } = await refs();
+  const ent = entites.find((e) => e.nom === r.societe_nom);
+  const cat = categories.find((c) => c.nom === r.categorie);
+  const op = {
+    date_op: r.date || new Date().toISOString().slice(0, 10),
+    type: 'depense',
+    entite_id: ent ? ent.id : null,
+    categorie_id: cat ? cat.id : null,
+    libelle: r.libelle || (r.fournisseur ? `Achat ${r.fournisseur}` : ''),
+    tiers: r.fournisseur || '',
+    montant_ttc: r.montant_ttc,
+    tva: r.tva,
+    paiement: r.paiement || '',
+    carte: r.carte || '',
+    notes: r.mentions_manuscrites ? `Manuscrit : ${r.mentions_manuscrites}` : '',
+  };
+  res.render('operation_form', { op, depot: d, entites, categories });
+});
+
+app.get('/depot/:id/fichier', requireAuth, async (req, res) => {
+  const { rows } = await pool.query('SELECT nom, mimetype, data FROM depots WHERE id=$1', [req.params.id]);
+  if (!rows[0]) return res.status(404).send('Introuvable');
+  res.set('Content-Type', rows[0].mimetype);
+  res.set('Content-Disposition', `inline; filename*=UTF-8''${encodeURIComponent(rows[0].nom)}`);
+  res.send(rows[0].data);
+});
 
 app.get('/operations', requireAuth, async (req, res) => {
   const q = { annee: String(new Date().getFullYear()), ...req.query };
@@ -167,6 +220,7 @@ function opValues(b) {
     Number(b.entite_id), b.date_op, b.type === 'recette' ? 'recette' : 'depense',
     b.categorie_id ? Number(b.categorie_id) : null, (b.libelle || '').trim(), (b.tiers || '').trim() || null,
     toNum(b.montant_ttc), toNum(b.tva), (b.notes || '').trim() || null,
+    PAIEMENTS.includes(b.paiement) ? b.paiement : null, (b.carte || '').trim() || null,
   ];
 }
 
@@ -176,14 +230,24 @@ function validOp(v) {
 
 app.post('/operations', requireAuth, upload.single('justificatif'), async (req, res) => {
   const v = opValues(req.body);
-  if (!validOp(v)) { flash(req, 'Champs obligatoires manquants ou montant invalide.', 'err'); return res.redirect('/operations/new'); }
-  const f = req.file;
+  if (!validOp(v)) {
+    flash(req, 'Champs obligatoires manquants ou montant invalide.', 'err');
+    return res.redirect(req.body.depot_id ? `/depot/${Number(req.body.depot_id)}` : '/operations/new');
+  }
+  let f = req.file ? { nom: req.file.originalname, type: req.file.mimetype, data: req.file.buffer } : null;
+  const depotId = Number(req.body.depot_id) || null;
+  if (!f && depotId) {
+    const { rows } = await pool.query('SELECT nom, mimetype, data FROM depots WHERE id=$1', [depotId]);
+    if (rows[0]) f = { nom: rows[0].nom, type: rows[0].mimetype, data: rows[0].data };
+  }
   await pool.query(
     `INSERT INTO operations (entite_id, date_op, type, categorie_id, libelle, tiers, montant_ttc, tva, notes,
-       justif_nom, justif_type, justif_data, created_by)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
-    [...v, f ? f.originalname : null, f ? f.mimetype : null, f ? f.buffer : null, req.session.user.id]);
+       paiement, carte, justif_nom, justif_type, justif_data, created_by)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
+    [...v, f ? f.nom : null, f ? f.type : null, f ? f.data : null, req.session.user.id]);
+  if (depotId) await pool.query('DELETE FROM depots WHERE id=$1', [depotId]);
   flash(req, 'Opération enregistrée.');
+  if (depotId) return res.redirect('/');
   res.redirect(req.body.encore ? `/operations/new?entite=${v[0]}` : '/operations');
 });
 
@@ -200,7 +264,7 @@ app.post('/operations/:id', requireAuth, upload.single('justificatif'), async (r
   if (!validOp(v)) { flash(req, 'Champs obligatoires manquants ou montant invalide.', 'err'); return res.redirect(`/operations/${req.params.id}/edit`); }
   await pool.query(
     `UPDATE operations SET entite_id=$1, date_op=$2, type=$3, categorie_id=$4, libelle=$5, tiers=$6,
-       montant_ttc=$7, tva=$8, notes=$9, updated_at=NOW() WHERE id=$10`, [...v, req.params.id]);
+       montant_ttc=$7, tva=$8, notes=$9, paiement=$10, carte=$11, updated_at=NOW() WHERE id=$12`, [...v, req.params.id]);
   if (req.file) {
     await pool.query('UPDATE operations SET justif_nom=$1, justif_type=$2, justif_data=$3 WHERE id=$4',
       [req.file.originalname, req.file.mimetype, req.file.buffer, req.params.id]);
@@ -235,12 +299,12 @@ app.get('/export.csv', requireAuth, async (req, res) => {
     return /[;"\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t;
   };
   const num = (n) => Number(n).toFixed(2).replace('.', ',');
-  const lines = [['Société', 'Date', 'Type', 'Catégorie', 'Libellé', 'Tiers', 'Montant TTC', 'TVA', 'Montant HT', 'Justificatif', 'Notes'].join(';')];
+  const lines = [['Société', 'Date', 'Type', 'Catégorie', 'Libellé', 'Tiers', 'Montant TTC', 'TVA', 'Montant HT', 'Paiement', 'Carte', 'Justificatif', 'Notes'].join(';')];
   for (const r of rows) {
     const d = r.date_op;
     const date = `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
     lines.push([r.entite, date, r.type === 'recette' ? 'Recette' : 'Dépense', r.categorie, r.libelle, r.tiers,
-      num(r.montant_ttc), num(r.tva), num(r.montant_ttc - r.tva), r.justif_nom ? 'oui' : 'non', r.notes].map(esc).join(';'));
+      num(r.montant_ttc), num(r.tva), num(r.montant_ttc - r.tva), r.paiement, r.carte, r.justif_nom ? 'oui' : 'non', r.notes].map(esc).join(';'));
   }
   res.set('Content-Type', 'text/csv; charset=utf-8');
   res.set('Content-Disposition', 'attachment; filename="export-compta.csv"');

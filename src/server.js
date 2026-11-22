@@ -10,7 +10,7 @@ const { analyser, classer, extraireLignes, decouperPdf, PAIEMENTS } = require('.
 const releves = require('./releves');
 
 const app = express();
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
 
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
@@ -143,11 +143,15 @@ app.post('/logout', (req, res) => req.session.destroy(() => res.redirect('/login
 // ---------- opérations ----------
 app.get('/', requireAuth, async (req, res) => {
   const { rows: lots } = await pool.query(`
-    SELECT l.id, l.nom, l.statut, l.created_at,
-      COUNT(d.id) FILTER (WHERE d.statut = 'a_valider')::int AS restants
+    SELECT l.id, l.nom, l.statut, l.nature, l.created_at, l.total_pages, l.pages_traitees,
+      COUNT(d.id) FILTER (WHERE d.statut = 'a_valider')::int AS restants,
+      (SELECT COUNT(*) FROM lignes x JOIN releves r ON r.id = x.releve_id WHERE r.lot_id = l.id)::int AS nb_lignes,
+      (SELECT r.compte_id FROM releves r WHERE r.lot_id = l.id LIMIT 1) AS compte_id
     FROM lots l LEFT JOIN depots d ON d.lot_id = l.id
-    GROUP BY l.id HAVING l.statut = 'en_cours' OR COUNT(d.id) FILTER (WHERE d.statut = 'a_valider') > 0
-    ORDER BY l.id DESC`);
+    GROUP BY l.id
+    HAVING l.statut = 'en_cours' OR COUNT(d.id) FILTER (WHERE d.statut = 'a_valider') > 0
+      OR l.created_at > NOW() - INTERVAL '1 day'
+    ORDER BY l.id DESC LIMIT 50`);
   res.render('depot', { iaActive: !!process.env.ANTHROPIC_API_KEY, lots });
 });
 
@@ -204,6 +208,8 @@ async function traiterLot(lotId, fichier, userId) {
     await pool.query('UPDATE lots SET nature=$1 WHERE id=$2', [info.nature, lotId]);
     if (info.nature !== 'tickets') return await traiterReleve(lotId, fichier, pages, info, cats, userId);
 
+    const base = fichier.originalname.replace(/\.[^.]+$/, '');
+    const ext = fichier.mimetype === 'application/pdf' ? '.pdf' : (fichier.originalname.match(/\.[^.]+$/) || ['.jpg'])[0];
     let suivant = 0;
     async function travailleur() {
       while (suivant < pages.length) {
@@ -233,14 +239,32 @@ async function traiterLot(lotId, fichier, userId) {
   }
 }
 
-app.post('/depot', requireAuth, upload.single('fichier'), async (req, res) => {
-  const f = req.file;
-  if (!f) { flash(req, 'Aucun fichier reçu.', 'err'); return res.redirect('/'); }
-  if (!/^image\/|^application\/pdf$/.test(f.mimetype)) { flash(req, 'Format non pris en charge (PDF ou photo).', 'err'); return res.redirect('/'); }
-  const { rows } = await pool.query('INSERT INTO lots (nom, created_by) VALUES ($1,$2) RETURNING id',
-    [f.originalname, req.session.user.id]);
-  traiterLot(rows[0].id, f, req.session.user.id); // sans await : tourne en arrière-plan
-  res.redirect(`/lot/${rows[0].id}`);
+// File d'attente : les fichiers déposés sont traités l'un après l'autre en arrière-plan.
+let fileAttente = Promise.resolve();
+function mettreEnFile(lotId, f, userId) {
+  fileAttente = fileAttente.then(() => traiterLot(lotId, f, userId)).catch((e) => console.error('File :', e));
+}
+
+app.post('/depot', requireAuth, upload.array('fichier', 50), async (req, res) => {
+  const fichiers = req.files || [];
+  if (!fichiers.length) { flash(req, 'Aucun fichier reçu.', 'err'); return res.redirect('/'); }
+  const refuses = fichiers.filter((f) => !/^image\/|^application\/pdf$/.test(f.mimetype));
+  const ids = [];
+  for (const f of fichiers.filter((x) => !refuses.includes(x))) {
+    const { rows } = await pool.query('INSERT INTO lots (nom, created_by) VALUES ($1,$2) RETURNING id',
+      [f.originalname, req.session.user.id]);
+    ids.push(rows[0].id);
+    mettreEnFile(rows[0].id, f, req.session.user.id);
+  }
+  if (refuses.length) flash(req, `Format non pris en charge (PDF ou photo) : ${refuses.map((f) => f.originalname).join(', ')}`, 'err');
+  if (ids.length === 1 && !refuses.length) return res.redirect(`/lot/${ids[0]}`);
+  if (ids.length) flash(req, `${ids.length} fichier(s) en cours de traitement.${refuses.length ? ` Refusé(s) : ${refuses.map((f) => f.originalname).join(', ')}` : ''}`, refuses.length ? 'err' : 'ok');
+  res.redirect('/');
+});
+
+app.get('/lots/etat.json', requireAuth, async (req, res) => {
+  const { rows } = await pool.query("SELECT COUNT(*)::int AS n FROM lots WHERE statut = 'en_cours'");
+  res.json({ en_cours: rows[0].n });
 });
 
 async function listeComptes() {

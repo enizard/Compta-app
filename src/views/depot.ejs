@@ -6,13 +6,13 @@
 <form id="f" method="post" action="/depot" enctype="multipart/form-data">
   <label class="drop" id="zone">
     <span class="big">📄</span>
-    <strong>Glissez ici une facture, un ticket, un scan de tickets ou un relevé CIC / AMEX (PDF)</strong>
-    <span class="muted">ou cliquez pour choisir un fichier / prendre une photo</span>
-    <input type="file" name="fichier" id="fichier" accept="application/pdf,image/*" hidden>
+    <strong>Glissez ici un ou plusieurs fichiers : factures, tickets, scans de tickets, relevés CIC / AMEX</strong>
+    <span class="muted">ou cliquez pour choisir des fichiers / prendre une photo</span>
+    <input type="file" name="fichier" id="fichier" accept="application/pdf,image/*" multiple hidden>
   </label>
 </form>
 <% if (lots.length) { %>
-  <h2>Dépôts en attente de validation</h2>
+  <h2>Derniers dépôts</h2>
   <table>
     <thead><tr><th>Fichier</th><th>Déposé le</th><th>État</th><th></th></tr></thead>
     <tbody>
@@ -20,12 +20,36 @@
       <tr>
         <td><%= l.nom %></td>
         <td><%= l.created_at.toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short', timeZone: 'Europe/Paris' }) %></td>
-        <td><%= l.statut === 'en_cours' ? 'Lecture en cours' : l.restants + ' ticket(s) à valider' %></td>
-        <td><a href="/lot/<%= l.id %>?liste=1">Ouvrir</a></td>
+        <td>
+          <% if (l.statut === 'en_cours') { %>
+            <span class="muted"><%= l.total_pages ? `Lecture en cours (${l.pages_traitees}/${l.total_pages} pages)` : 'En attente…' %></span>
+          <% } else if (l.statut === 'erreur' || l.statut === 'interrompu') { %>
+            <span class="neg"><%= l.statut === 'erreur' ? 'Échec' : 'Interrompu' %></span>
+          <% } else if (l.compte_id) { %>
+            Relevé : <%= l.nb_lignes %> ligne(s) importée(s)
+          <% } else if (l.restants) { %>
+            <strong><%= l.restants %> ticket(s) à valider</strong>
+          <% } else { %>
+            <span class="pos">Traité</span>
+          <% } %>
+        </td>
+        <td>
+          <% if (l.compte_id) { %><a href="/rapprochement?compte=<%= l.compte_id %>">Rapprochement</a>
+          <% } else if (l.restants) { %><a href="/lot/<%= l.id %>">Valider →</a>
+          <% } else { %><a href="/lot/<%= l.id %>?liste=1">Ouvrir</a><% } %>
+        </td>
       </tr>
     <% }) %>
     </tbody>
   </table>
+  <% if (lots.some(l => l.statut === 'en_cours')) { %>
+  <script>
+    setInterval(async () => {
+      const r = await fetch('/lots/etat.json').then((x) => x.json()).catch(() => null);
+      if (r) location.reload();
+    }, 4000);
+  </script>
+  <% } %>
 <% } %>
 <p class="muted">Les relevés de compte CIC, de carte CIC et AMEX sont reconnus automatiquement (banque et société) et leurs lignes sont rapprochées des tickets et factures. Sur les tickets, notez à la main la société (LMF, SAN, BMG, SCI) et le paiement (CB CIC / CIC, AMEX, Avance CC / CC) : ils seront reconnus automatiquement.</p>
 <script>
@@ -33,7 +57,7 @@
   function envoyer() {
     zone.classList.add('busy');
     zone.querySelector('strong').textContent = 'Analyse en cours…';
-    zone.querySelector('.muted').textContent = 'Envoi du document…';
+    zone.querySelector('.muted').textContent = `Envoi de ${input.files.length} fichier(s)…`;
     form.submit();
   }
   input.addEventListener('change', () => input.files.length && envoyer());

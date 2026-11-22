@@ -4,6 +4,7 @@ const session = require('express-session');
 const PgStore = require('connect-pg-simple')(session);
 const bcrypt = require('bcryptjs');
 const multer = require('multer');
+const crypto = require('crypto');
 const { pool, init } = require('./db');
 
 const app = express();
@@ -15,19 +16,26 @@ app.set('trust proxy', 1);
 app.use(express.urlencoded({ extended: false }));
 app.use('/static', express.static(path.join(__dirname, 'public')));
 
-app.use(session({
-  store: new PgStore({ pool, tableName: 'session' }),
-  secret: process.env.SESSION_SECRET || 'dev-secret-a-changer',
-  resave: false,
-  saveUninitialized: false,
-  cookie: {
-    httpOnly: true,
-    sameSite: 'lax',
-    secure: process.env.NODE_ENV === 'production',
-    maxAge: 1000 * 60 * 60 * 24 * 7,
-  },
-}));
+async function sessionSecret() {
+  if (process.env.SESSION_SECRET) return process.env.SESSION_SECRET;
+  await pool.query('CREATE TABLE IF NOT EXISTS app_config (cle TEXT PRIMARY KEY, valeur TEXT NOT NULL)');
+  await pool.query('INSERT INTO app_config (cle, valeur) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+    ['session_secret', crypto.randomBytes(48).toString('hex')]);
+  const { rows } = await pool.query("SELECT valeur FROM app_config WHERE cle = 'session_secret'");
+  return rows[0].valeur;
+}
 
+function setupSession(secret) {
+  app.use(session({
+    store: new PgStore({ pool, tableName: 'session' }),
+    secret,
+    resave: false,
+    saveUninitialized: false,
+    cookie: { httpOnly: true, sameSite: 'lax', secure: 'auto', maxAge: 1000 * 60 * 60 * 24 * 7 },
+  }));
+}
+
+function registerRoutes() {
 // ---------- helpers ----------
 const fmt = (n) => Number(n || 0).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const toNum = (v) => {
@@ -331,6 +339,12 @@ app.use((err, req, res, next) => {
   res.status(500).send('Erreur serveur');
 });
 
+}
+
 const port = process.env.PORT || 3000;
-init().then(() => app.listen(port, () => console.log(`compta-app sur le port ${port}`)))
+init().then(sessionSecret).then((secret) => {
+  setupSession(secret);
+  registerRoutes();
+  app.listen(port, () => console.log(`compta-app sur le port ${port}`));
+})
   .catch((e) => { console.error('Init DB échouée', e); process.exit(1); });

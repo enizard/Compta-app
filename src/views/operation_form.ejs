@@ -39,6 +39,7 @@
       <select name="entite_id" required>
         <option value="">—</option>
         <% entites.forEach(e => { %><option value="<%= e.id %>" <%= op.entite_id === e.id ? 'selected' : '' %>><%= e.nom %></option><% }) %>
+        <option value="inconnue" <%= op.id && op.entite_id === null ? 'selected' : '' %>>Je ne sais plus (déterminée au rapprochement bancaire)</option>
       </select>
     </label>
     <label>Date *<input type="date" name="date_op" value="<%= op.date_op %>" required></label>
@@ -61,7 +62,7 @@
     <label>Montant HT (€)<input id="ht" readonly tabindex="-1" class="readonly"></label>
     <label>Paiement
       <select name="paiement">
-        <option value="">—</option>
+        <option value="">Je ne sais plus (déterminé au rapprochement bancaire)</option>
         <% PAIEMENTS.forEach(p => { %><option <%= op.paiement === p ? 'selected' : '' %>><%= p %></option><% }) %>
       </select>
     </label>

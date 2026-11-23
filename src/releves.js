@@ -85,7 +85,22 @@ async function rapprocher() {
       } catch (e) { /* opération déjà prise entre-temps */ }
     }
   }
+  await attribuerSocietes();
   return auto;
+}
+
+// Une opération saisie avec « société à déterminer » prend la société du compte où elle a été rapprochée.
+async function attribuerSocietes() {
+  await pool.query(`UPDATE operations o SET entite_id = c.entite_id
+    FROM lignes l JOIN comptes c ON c.id = l.compte_id
+    WHERE l.operation_id = o.id AND o.entite_id IS NULL AND c.entite_id IS NOT NULL`);
+  // Idem pour le moyen de paiement : carte CIC, AMEX ou compte courant.
+  await pool.query(`UPDATE operations o SET paiement = CASE
+      WHEN c.nature = 'carte' AND c.banque = 'AMEX' THEN 'AMEX'
+      WHEN c.nature = 'carte' THEN 'CB CIC'
+      ELSE 'Virement / prélèvement' END
+    FROM lignes l JOIN comptes c ON c.id = l.compte_id
+    WHERE l.operation_id = o.id AND o.paiement IS NULL`);
 }
 
 // Opérations pouvant correspondre à une ligne (même montant, même société, dates proches, pas encore rapprochées).
@@ -101,14 +116,14 @@ async function candidats(l, jours) {
   const { rows } = await pool.query(`
     SELECT o.id, o.date_op, o.libelle, o.tiers, o.montant_ttc, e.nom AS entite,
       ABS(o.date_op - $3::date) AS ecart
-    FROM operations o JOIN entites e ON e.id = o.entite_id
+    FROM operations o LEFT JOIN entites e ON e.id = o.entite_id
     WHERE o.type = $1 AND ABS(o.montant_ttc - ABS($2::numeric)) < 0.01
       AND ABS(o.date_op - $3::date) <= $4
-      AND ($5::int IS NULL OR o.entite_id = $5)
+      AND ($5::int IS NULL OR o.entite_id IS NULL OR o.entite_id = $5)
       AND NOT EXISTS (SELECT 1 FROM lignes x WHERE x.operation_id = o.id)
       ${paiementSql}
     ORDER BY ecart, o.id`, [type, l.montant, l.date_op, jours, l.entite_id]);
   return rows;
 }
 
-module.exports = { trouverCompte, insererLignes, rapprocher, candidats };
+module.exports = { trouverCompte, insererLignes, rapprocher, candidats, attribuerSocietes };

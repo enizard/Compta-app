@@ -82,7 +82,8 @@ async function refs() {
 function buildFilters(q) {
   const where = [];
   const params = [];
-  if (q.entite) { params.push(Number(q.entite)); where.push(`o.entite_id = $${params.length}`); }
+  if (q.entite === 'inconnue') where.push('o.entite_id IS NULL');
+  else if (q.entite) { params.push(Number(q.entite)); where.push(`o.entite_id = $${params.length}`); }
   if (q.annee) { params.push(Number(q.annee)); where.push(`EXTRACT(YEAR FROM o.date_op) = $${params.length}`); }
   if (q.mois) { params.push(Number(q.mois)); where.push(`EXTRACT(MONTH FROM o.date_op) = $${params.length}`); }
   if (q.type === 'recette' || q.type === 'depense') { params.push(q.type); where.push(`o.type = $${params.length}`); }
@@ -97,7 +98,7 @@ const OPS_SELECT = `
          e.nom AS entite, c.nom AS categorie, u.nom AS auteur,
          EXISTS (SELECT 1 FROM lignes x WHERE x.operation_id = o.id) AS rapprochee
   FROM operations o
-  JOIN entites e ON e.id = o.entite_id
+  LEFT JOIN entites e ON e.id = o.entite_id
   LEFT JOIN categories c ON c.id = o.categorie_id
   LEFT JOIN users u ON u.id = o.created_by`;
 
@@ -400,7 +401,7 @@ app.get('/depot/:id', requireAuth, async (req, res) => {
   if (r.montant_ttc && r.date) {
     ({ rows: doublons } = await pool.query(
       `SELECT o.id, o.date_op, o.tiers, o.libelle, o.montant_ttc, e.nom AS entite FROM operations o
-       JOIN entites e ON e.id = o.entite_id
+       LEFT JOIN entites e ON e.id = o.entite_id
        WHERE o.montant_ttc = $1 AND o.date_op = $2 ORDER BY o.id`, [r.montant_ttc, r.date]));
   }
   res.render('operation_form', { op, depot: d, position, doublons, entites, categories });
@@ -471,7 +472,7 @@ app.get('/operations/new', requireAuth, async (req, res) => {
 
 function opValues(b) {
   return [
-    Number(b.entite_id), b.date_op, b.type === 'recette' ? 'recette' : 'depense',
+    b.entite_id === 'inconnue' ? null : Number(b.entite_id), b.date_op, b.type === 'recette' ? 'recette' : 'depense',
     b.categorie_id ? Number(b.categorie_id) : null, (b.libelle || '').trim(), (b.tiers || '').trim() || null,
     toNum(b.montant_ttc), toNum(b.tva), (b.notes || '').trim() || null,
     PAIEMENTS.includes(b.paiement) ? b.paiement : null, (b.carte || '').trim() || null,
@@ -479,7 +480,7 @@ function opValues(b) {
 }
 
 function validOp(v) {
-  return v[0] && v[1] && v[4] && !Number.isNaN(v[6]) && !Number.isNaN(v[7]);
+  return (v[0] || v[0] === null) && v[1] && v[4] && !Number.isNaN(v[6]) && !Number.isNaN(v[7]);
 }
 
 app.post('/operations', requireAuth, upload.single('justificatif'), async (req, res) => {
@@ -504,6 +505,7 @@ app.post('/operations', requireAuth, upload.single('justificatif'), async (req, 
   if (req.body.ligne_id) {
     await pool.query('UPDATE lignes SET operation_id=$1 WHERE id=$2 AND operation_id IS NULL',
       [opId, Number(req.body.ligne_id)]).catch(() => {});
+    await releves.attribuerSocietes();
   } else {
     releves.rapprocher().catch((e) => console.error('Rapprochement :', e.message));
   }
@@ -599,6 +601,7 @@ app.post('/lignes/:id/associer', requireAuth, async (req, res) => {
   const { rows } = await pool.query('SELECT compte_id FROM lignes WHERE id=$1', [req.params.id]);
   try {
     await pool.query('UPDATE lignes SET operation_id=$1 WHERE id=$2', [Number(req.body.operation_id), req.params.id]);
+    await releves.attribuerSocietes();
     flash(req, 'Ligne rapprochée.');
   } catch (e) {
     flash(req, 'Cette opération est déjà rapprochée d\'une autre ligne.', 'err');
@@ -762,7 +765,7 @@ app.post('/fournisseurs/:id', requireAuth, async (req, res) => {
 // ---------- export CSV (pour l'expert-comptable) ----------
 app.get('/export.csv', requireAuth, async (req, res) => {
   const { sql, params } = buildFilters(req.query);
-  const { rows } = await pool.query(`${OPS_SELECT} ${sql} ORDER BY e.nom, o.date_op, o.id`, params);
+  const { rows } = await pool.query(`${OPS_SELECT} ${sql} ORDER BY e.nom NULLS LAST, o.date_op, o.id`, params);
   const esc = (s) => {
     const t = s === null || s === undefined ? '' : String(s);
     return /[;"\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t;
@@ -772,7 +775,7 @@ app.get('/export.csv', requireAuth, async (req, res) => {
   for (const r of rows) {
     const d = r.date_op;
     const date = `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
-    lines.push([r.entite, date, r.type === 'recette' ? 'Recette' : 'Dépense', r.categorie, r.libelle, r.tiers,
+    lines.push([r.entite || 'À déterminer', date, r.type === 'recette' ? 'Recette' : 'Dépense', r.categorie, r.libelle, r.tiers,
       num(r.montant_ttc), num(r.tva), num(r.montant_ttc - r.tva), r.paiement, r.carte, r.justif_nom ? 'oui' : 'non', r.notes].map(esc).join(';'));
   }
   res.set('Content-Type', 'text/csv; charset=utf-8');

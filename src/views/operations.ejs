@@ -11,6 +11,7 @@
   <select name="entite">
     <option value="">Toutes les sociétés</option>
     <% entites.forEach(e => { %><option value="<%= e.id %>" <%= String(q.entite) === String(e.id) ? 'selected' : '' %>><%= e.nom %></option><% }) %>
+    <option value="inconnue" <%= q.entite === 'inconnue' ? 'selected' : '' %>>Société à déterminer</option>
   </select>
   <select name="annee">
     <option value="">Toutes les années</option>
@@ -49,11 +50,11 @@
   <% ops.forEach(o => { %>
     <tr>
       <td><%= o.date_op.toLocaleDateString('fr-FR') %></td>
-      <td><%= o.entite %></td>
+      <td><%= o.entite || '' %><% if (!o.entite) { %><span class="neg">À déterminer</span><% } %></td>
       <td><%= o.libelle %></td>
       <td><%= o.tiers || '' %></td>
       <td><%= o.categorie || '' %></td>
-      <td><%= o.paiement || '' %></td>
+      <td><%= o.paiement || '' %><% if (!o.paiement && o.type === 'depense') { %><span class="muted">À déterminer</span><% } %></td>
       <td class="r <%= o.type === 'recette' ? 'pos' : 'neg' %>"><%= o.type === 'recette' ? '+' : '−' %> <%= fmt(o.montant_ttc) %></td>
       <td class="r"><%= Number(o.tva) ? fmt(o.tva) : '' %></td>
       <td><% if (o.rapprochee) { %><span title="Rapprochée avec le relevé">🏦</span><% } %><% if (o.justif_nom) { %><a href="/operations/<%= o.id %>/justificatif" target="_blank">📎</a><% } else if (!o.rapprochee) { %><span class="muted">—</span><% } %></td>

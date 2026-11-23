@@ -134,6 +134,14 @@ async function init() {
     ALTER TABLE operations ADD COLUMN IF NOT EXISTS reglement TEXT;
     ALTER TABLE lignes ADD COLUMN IF NOT EXISTS ecart_accepte BOOLEAN NOT NULL DEFAULT FALSE;
     ALTER TABLE operations ADD COLUMN IF NOT EXISTS fournisseur_id INTEGER REFERENCES fournisseurs(id) ON DELETE SET NULL;
+    CREATE TABLE IF NOT EXISTS reglements (
+      id SERIAL PRIMARY KEY,
+      operation_id INTEGER NOT NULL REFERENCES operations(id) ON DELETE CASCADE,
+      date_reg DATE,
+      montant NUMERIC(12,2) NOT NULL,
+      paiement TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_reglements_op ON reglements(operation_id);
     CREATE TABLE IF NOT EXISTS "session" (
       "sid" varchar NOT NULL COLLATE "default" PRIMARY KEY,
       "sess" json NOT NULL,

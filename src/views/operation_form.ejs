@@ -72,6 +72,27 @@
         <% REGLEMENTS.forEach(x => { %><option <%= op.reglement === x ? 'selected' : '' %>><%= x %></option><% }) %>
       </select>
     </label>
+    <div class="wide">
+      <label class="inline"><input type="checkbox" name="plusieurs_fois" value="1" id="plusieurs" <%= op.reglements && op.reglements.length ? 'checked' : '' %>> Réglé en plusieurs fois</label>
+      <div id="echeancier" <%= op.reglements && op.reglements.length ? '' : 'hidden' %>>
+        <table class="echeances">
+          <thead><tr><th>Date</th><th>Montant (€)</th><th>Moyen de paiement</th><th></th></tr></thead>
+          <tbody id="lignesReg">
+            <% (op.reglements && op.reglements.length ? op.reglements : [{}]).forEach(r => { %>
+            <tr>
+              <td><input type="date" name="reg_date[]" value="<%= r.date_reg || '' %>"></td>
+              <td><input name="reg_montant[]" inputmode="decimal" value="<%= r.montant != null ? String(r.montant).replace('.', ',') : '' %>"></td>
+              <td><select name="reg_paiement[]"><option value="">—</option><% PAIEMENTS.forEach(p => { %><option <%= r.paiement === p ? 'selected' : '' %>><%= p %></option><% }) %></select></td>
+              <td><button type="button" class="link" onclick="supprReg(this)">retirer</button></td>
+            </tr>
+            <% }) %>
+          </tbody>
+        </table>
+        <button type="button" class="secondary" onclick="ajoutReg()">+ Ajouter un paiement</button>
+        <small class="muted" id="resteReg"></small>
+        <small class="muted">— le statut de règlement est calculé à partir de ces paiements.</small>
+      </div>
+    </div>
     <label>Livraison
       <select name="livraison">
         <option value="">—</option>
@@ -116,6 +137,16 @@
       document.getElementById('ht').value = f.montant_ttc.value ? (ttc - tva).toFixed(2).replace('.', ',') : '';
     }
     f.montant_ttc.addEventListener('input', maj); f.tva.addEventListener('input', maj); maj();
+    const ech = document.getElementById('echeancier'), corps = document.getElementById('lignesReg');
+    function reste() {
+      const tot = [...corps.querySelectorAll('input[name="reg_montant[]"]')].reduce((a, i) => a + num(i.value), 0);
+      const r = num(f.montant_ttc.value) - tot;
+      document.getElementById('resteReg').textContent = ` Total payé : ${tot.toFixed(2).replace('.', ',')} € — reste à payer : ${r.toFixed(2).replace('.', ',')} €`;
+    }
+    document.getElementById('plusieurs').addEventListener('change', (e) => { ech.hidden = !e.target.checked; });
+    window.ajoutReg = () => { const tr = corps.rows[0].cloneNode(true); tr.querySelectorAll('input').forEach((i) => i.value = ''); tr.querySelector('select').value = ''; corps.appendChild(tr); };
+    window.supprReg = (b) => { if (corps.rows.length > 1) b.closest('tr').remove(); else b.closest('tr').querySelectorAll('input').forEach((i) => i.value = ''); reste(); };
+    corps.addEventListener('input', reste); f.montant_ttc.addEventListener('input', reste); reste();
   })();
 </script>
 <%- include('partials/footer') %>

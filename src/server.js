@@ -475,6 +475,24 @@ app.get('/operations/new', requireAuth, async (req, res) => {
   res.render('operation_form', { op, ligne, ...r });
 });
 
+// Règlement en plusieurs fois : enregistre les échéances et en déduit le statut de règlement.
+async function enregistrerReglements(opId, b, montantTtc) {
+  await pool.query('DELETE FROM reglements WHERE operation_id=$1', [opId]);
+  if (!b.plusieurs_fois) return;
+  const arr = (x) => [].concat(x === undefined ? [] : x);
+  const dates = arr(b['reg_date[]'] ?? b.reg_date), montants = arr(b['reg_montant[]'] ?? b.reg_montant), modes = arr(b['reg_paiement[]'] ?? b.reg_paiement);
+  let total = 0;
+  for (let i = 0; i < montants.length; i++) {
+    const m = toNum(montants[i]);
+    if (!m || Number.isNaN(m)) continue;
+    total += m;
+    await pool.query('INSERT INTO reglements (operation_id, date_reg, montant, paiement) VALUES ($1,$2,$3,$4)',
+      [opId, dates[i] || null, m, PAIEMENTS.includes(modes[i]) ? modes[i] : null]);
+  }
+  const statut = total <= 0 ? 'Non réglé' : total + 0.005 >= montantTtc ? 'Réglé en totalité' : 'Partiellement réglé';
+  await pool.query('UPDATE operations SET reglement=$1 WHERE id=$2', [statut, opId]);
+}
+
 function opValues(b) {
   return [
     b.entite_id === 'inconnue' ? null : Number(b.entite_id), b.date_op, b.type === 'recette' ? 'recette' : 'depense',
@@ -509,6 +527,7 @@ app.post('/operations', requireAuth, upload.single('justificatif'), async (req, 
     [...v, f ? f.nom : null, f ? f.type : null, f ? f.data : null, req.session.user.id]);
   const opId = ins[0].id;
   await fournisseurs.lierOperation(opId, v[5]);
+  await enregistrerReglements(opId, req.body, v[6]);
   if (req.body.ligne_id) {
     await pool.query('UPDATE lignes SET operation_id=$1 WHERE id=$2 AND operation_id IS NULL',
       [opId, Number(req.body.ligne_id)]).catch(() => {});
@@ -534,6 +553,9 @@ app.get('/operations/:id/edit', requireAuth, async (req, res) => {
   if (!rows[0]) return res.status(404).send('Introuvable');
   const op = rows[0];
   op.date_op = new Date(op.date_op.getTime() - op.date_op.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+  const { rows: regs } = await pool.query(
+    "SELECT to_char(date_reg, 'YYYY-MM-DD') AS date_reg, montant, paiement FROM reglements WHERE operation_id=$1 ORDER BY date_reg NULLS LAST, id", [op.id]);
+  op.reglements = regs;
   res.render('operation_form', { op, ...(await refs()) });
 });
 
@@ -544,6 +566,7 @@ app.post('/operations/:id', requireAuth, upload.single('justificatif'), async (r
     `UPDATE operations SET entite_id=$1, date_op=$2, type=$3, categorie_id=$4, libelle=$5, tiers=$6,
        montant_ttc=$7, tva=$8, notes=$9, paiement=$10, carte=$11, livraison=$12, reglement=$13, updated_at=NOW() WHERE id=$14`, [...v, req.params.id]);
   if (v[5]) await fournisseurs.lierOperation(req.params.id, v[5]);
+  await enregistrerReglements(req.params.id, req.body, v[6]);
   if (req.file) {
     await pool.query('UPDATE operations SET justif_nom=$1, justif_type=$2, justif_data=$3 WHERE id=$4',
       [req.file.originalname, req.file.mimetype, req.file.buffer, req.params.id]);

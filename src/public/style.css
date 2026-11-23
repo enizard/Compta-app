@@ -71,3 +71,7 @@ tr.muted td { color: #9aa1b0; }
 
 .badge.warn { background: #b54708; }
 .ecart { margin-top: 4px; padding: 6px 8px; background: #fef6e7; border-radius: 6px; color: #8a4b0f; font-size: 13px; }
+
+table.echeances { margin: 6px 0; width: auto; }
+table.echeances td { padding: 4px 6px; }
+table.echeances input, table.echeances select { margin-top: 0; }

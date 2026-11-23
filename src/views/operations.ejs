@@ -51,7 +51,7 @@
     <tr>
       <td><%= o.date_op.toLocaleDateString('fr-FR') %></td>
       <td><%= o.entite || '' %><% if (!o.entite) { %><span class="neg">À déterminer</span><% } %></td>
-      <td><%= o.libelle %></td>
+      <td><%= o.libelle %><% if (o.livraison && o.livraison !== 'Livré en totalité') { %> <span class="badge warn"><%= o.livraison %></span><% } %></td>
       <td><%= o.tiers || '' %></td>
       <td><%= o.categorie || '' %></td>
       <td><%= o.paiement || '' %><% if (!o.paiement && o.type === 'depense') { %><span class="muted">À déterminer</span><% } %></td>

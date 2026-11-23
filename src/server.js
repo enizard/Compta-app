@@ -6,6 +6,7 @@ const bcrypt = require('bcryptjs');
 const multer = require('multer');
 const crypto = require('crypto');
 const { pool, init } = require('./db');
+const LIVRAISONS = ['Non livré', 'Partiellement livré', 'Livré en totalité'];
 const { analyser, classer, extraireLignes, decouperPdf, PAIEMENTS } = require('./analyse');
 const releves = require('./releves');
 const fournisseurs = require('./fournisseurs');
@@ -51,6 +52,7 @@ app.use(async (req, res, next) => {
   res.locals.user = req.session.user || null;
   res.locals.fmt = fmt;
   res.locals.PAIEMENTS = PAIEMENTS;
+  res.locals.LIVRAISONS = LIVRAISONS;
   res.locals.flash = req.session.flash || null;
   delete req.session.flash;
   next();
@@ -95,7 +97,7 @@ function buildFilters(q) {
 
 const OPS_SELECT = `
   SELECT o.id, o.date_op, o.type, o.libelle, o.tiers, o.montant_ttc, o.tva, o.notes,
-         o.justif_nom, o.entite_id, o.categorie_id, o.paiement, o.carte,
+         o.justif_nom, o.entite_id, o.categorie_id, o.paiement, o.carte, o.livraison,
          e.nom AS entite, c.nom AS categorie, u.nom AS auteur,
          EXISTS (SELECT 1 FROM lignes x WHERE x.operation_id = o.id) AS rapprochee
   FROM operations o
@@ -477,6 +479,7 @@ function opValues(b) {
     b.categorie_id ? Number(b.categorie_id) : null, (b.libelle || '').trim(), (b.tiers || '').trim() || null,
     toNum(b.montant_ttc), toNum(b.tva), (b.notes || '').trim() || null,
     PAIEMENTS.includes(b.paiement) ? b.paiement : null, (b.carte || '').trim() || null,
+    LIVRAISONS.includes(b.livraison) ? b.livraison : null,
   ];
 }
 
@@ -498,8 +501,8 @@ app.post('/operations', requireAuth, upload.single('justificatif'), async (req, 
   }
   const { rows: ins } = await pool.query(
     `INSERT INTO operations (entite_id, date_op, type, categorie_id, libelle, tiers, montant_ttc, tva, notes,
-       paiement, carte, justif_nom, justif_type, justif_data, created_by)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING id`,
+       paiement, carte, livraison, justif_nom, justif_type, justif_data, created_by)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING id`,
     [...v, f ? f.nom : null, f ? f.type : null, f ? f.data : null, req.session.user.id]);
   const opId = ins[0].id;
   await fournisseurs.lierOperation(opId, v[5]);
@@ -536,7 +539,7 @@ app.post('/operations/:id', requireAuth, upload.single('justificatif'), async (r
   if (!validOp(v)) { flash(req, 'Champs obligatoires manquants ou montant invalide.', 'err'); return res.redirect(`/operations/${req.params.id}/edit`); }
   await pool.query(
     `UPDATE operations SET entite_id=$1, date_op=$2, type=$3, categorie_id=$4, libelle=$5, tiers=$6,
-       montant_ttc=$7, tva=$8, notes=$9, paiement=$10, carte=$11, updated_at=NOW() WHERE id=$12`, [...v, req.params.id]);
+       montant_ttc=$7, tva=$8, notes=$9, paiement=$10, carte=$11, livraison=$12, updated_at=NOW() WHERE id=$13`, [...v, req.params.id]);
   if (v[5]) await fournisseurs.lierOperation(req.params.id, v[5]);
   if (req.file) {
     await pool.query('UPDATE operations SET justif_nom=$1, justif_type=$2, justif_data=$3 WHERE id=$4',
@@ -800,12 +803,12 @@ app.get('/export.csv', requireAuth, async (req, res) => {
     return /[;"\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t;
   };
   const num = (n) => Number(n).toFixed(2).replace('.', ',');
-  const lines = [['Société', 'Date', 'Type', 'Catégorie', 'Libellé', 'Tiers', 'Montant TTC', 'TVA', 'Montant HT', 'Paiement', 'Carte', 'Justificatif', 'Notes'].join(';')];
+  const lines = [['Société', 'Date', 'Type', 'Catégorie', 'Libellé', 'Tiers', 'Montant TTC', 'TVA', 'Montant HT', 'Paiement', 'Carte', 'Livraison', 'Justificatif', 'Notes'].join(';')];
   for (const r of rows) {
     const d = r.date_op;
     const date = `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
     lines.push([r.entite || 'À déterminer', date, r.type === 'recette' ? 'Recette' : 'Dépense', r.categorie, r.libelle, r.tiers,
-      num(r.montant_ttc), num(r.tva), num(r.montant_ttc - r.tva), r.paiement, r.carte, r.justif_nom ? 'oui' : 'non', r.notes].map(esc).join(';'));
+      num(r.montant_ttc), num(r.tva), num(r.montant_ttc - r.tva), r.paiement, r.carte, r.livraison, r.justif_nom ? 'oui' : 'non', r.notes].map(esc).join(';'));
   }
   res.set('Content-Type', 'text/csv; charset=utf-8');
   res.set('Content-Disposition', 'attachment; filename="export-compta.csv"');

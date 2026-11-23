@@ -66,6 +66,12 @@
         <% PAIEMENTS.forEach(p => { %><option <%= op.paiement === p ? 'selected' : '' %>><%= p %></option><% }) %>
       </select>
     </label>
+    <label>Livraison
+      <select name="livraison">
+        <option value="">—</option>
+        <% LIVRAISONS.forEach(x => { %><option <%= op.livraison === x ? 'selected' : '' %>><%= x %></option><% }) %>
+      </select>
+    </label>
     <label>Carte utilisée<input name="carte" value="<%= op.carte || '' %>" placeholder="ex. VISA **** 1234"></label>
     <% if (depot) { %><div><small class="muted">Justificatif : <%= depot.nom %> (joint automatiquement)</small></div><% } else { %>
     <label>Justificatif (PDF, image — 10 Mo max)

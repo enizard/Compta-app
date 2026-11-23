@@ -66,6 +66,12 @@
         <% PAIEMENTS.forEach(p => { %><option <%= op.paiement === p ? 'selected' : '' %>><%= p %></option><% }) %>
       </select>
     </label>
+    <label>Règlement
+      <select name="reglement">
+        <option value="">—</option>
+        <% REGLEMENTS.forEach(x => { %><option <%= op.reglement === x ? 'selected' : '' %>><%= x %></option><% }) %>
+      </select>
+    </label>
     <label>Livraison
       <select name="livraison">
         <option value="">—</option>

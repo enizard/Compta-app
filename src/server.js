@@ -468,7 +468,7 @@ app.get('/operations/new', requireAuth, async (req, res) => {
         type: Number(ligne.montant) < 0 ? 'depense' : 'recette', entite_id: ligne.entite_id,
         categorie_id: cat ? cat.id : null, libelle: ligne.libelle, montant_ttc: Math.abs(Number(ligne.montant)),
         tiers: ligne.fournisseur || '',
-        paiement: ligne.nature === 'carte' ? (ligne.banque === 'AMEX' ? 'AMEX' : 'CB CIC') : 'Virement / prélèvement',
+        paiement: ligne.nature === 'carte' ? (ligne.banque === 'AMEX' ? 'AMEX' : 'CB CIC') : 'Virement / prélèvement CIC',
       };
     }
   }
@@ -668,7 +668,7 @@ app.post('/lignes/creer', requireAuth, async (req, res) => {
     const l = rows[0];
     if (!l || !l.entite_id) continue;
     const cat = l.categorie ? (await pool.query('SELECT id FROM categories WHERE nom=$1', [l.categorie])).rows[0] : null;
-    const paiement = l.nature === 'carte' ? (l.banque === 'AMEX' ? 'AMEX' : 'CB CIC') : 'Virement / prélèvement';
+    const paiement = l.nature === 'carte' ? (l.banque === 'AMEX' ? 'AMEX' : 'CB CIC') : 'Virement / prélèvement CIC';
     const op = await pool.query(
       `INSERT INTO operations (entite_id, date_op, type, categorie_id, libelle, montant_ttc, tva, paiement, created_by)
        VALUES ($1,$2,$3,$4,$5,$6,0,$7,$8) RETURNING id`,

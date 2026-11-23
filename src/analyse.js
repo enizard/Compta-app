@@ -7,7 +7,7 @@ const API_URL = (process.env.ANTHROPIC_BASE_URL || 'https://api.anthropic.com') 
 const MODEL = process.env.ANTHROPIC_MODEL || 'claude-sonnet-5-5';
 
 const SOCIETES = { LMF: 'LMF', SAN: 'Simple and New', BMG: 'BMG', SCI: 'SCI E NIZARD' };
-const PAIEMENTS = ['CB CIC', 'AMEX', 'Avance CC', 'Virement / prélèvement', 'Autre'];
+const PAIEMENTS = ['CB CIC', 'AMEX', 'Avance CC', 'Virement / prélèvement CIC', 'Autre'];
 
 function prompt(categories) {
   return `Cette image (ou page PDF) contient une ou plusieurs factures d'achat ou tickets de caisse français.

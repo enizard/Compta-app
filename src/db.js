@@ -148,6 +148,7 @@ async function init() {
   await pool.query(`DELETE FROM depots d USING lots l WHERE d.lot_id = l.id AND l.created_at < NOW() - INTERVAL '7 days'
     AND NOT EXISTS (SELECT 1 FROM depots d2 WHERE d2.lot_id = l.id AND d2.statut = 'a_valider')`);
   await pool.query("DELETE FROM depots WHERE lot_id IS NULL");
+  await pool.query("UPDATE operations SET paiement='Virement / prélèvement CIC' WHERE paiement='Virement / prélèvement'");
   for (const nom of ENTITES) {
     await pool.query('INSERT INTO entites (nom) VALUES ($1) ON CONFLICT DO NOTHING', [nom]);
   }

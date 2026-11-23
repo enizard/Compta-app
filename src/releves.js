@@ -98,7 +98,7 @@ async function attribuerSocietes() {
   await pool.query(`UPDATE operations o SET paiement = CASE
       WHEN c.nature = 'carte' AND c.banque = 'AMEX' THEN 'AMEX'
       WHEN c.nature = 'carte' THEN 'CB CIC'
-      ELSE 'Virement / prélèvement' END
+      ELSE 'Virement / prélèvement CIC' END
     FROM lignes l JOIN comptes c ON c.id = l.compte_id
     WHERE l.operation_id = o.id AND o.paiement IS NULL`);
 }
@@ -106,7 +106,7 @@ async function attribuerSocietes() {
 // Moyen de paiement attendu pour une ligne d'un compte donné.
 function paiementAttendu(c) {
   if (c.nature === 'carte') return c.banque === 'AMEX' ? 'AMEX' : 'CB CIC';
-  return 'Virement / prélèvement';
+  return 'Virement / prélèvement CIC';
 }
 
 // Écarts entre ce qui a été saisi sur l'opération et ce que dit le relevé.
@@ -116,7 +116,7 @@ function ecarts(op, compte, nomsEntites) {
     e.push(`société saisie « ${nomsEntites[op.entite_id] || '?'} », le relevé indique « ${nomsEntites[compte.entite_id] || '?'} »`);
   }
   const attendu = paiementAttendu(compte);
-  const okCompte = compte.nature === 'compte' && ['Virement / prélèvement', 'Autre'].includes(op.paiement);
+  const okCompte = compte.nature === 'compte' && ['Virement / prélèvement CIC', 'Autre'].includes(op.paiement);
   if (op.paiement && op.paiement !== attendu && !okCompte) {
     e.push(`paiement saisi « ${op.paiement} », le relevé indique « ${attendu} »`);
   }

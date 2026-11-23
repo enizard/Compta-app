@@ -130,6 +130,7 @@ async function init() {
     ALTER TABLE lignes ADD COLUMN IF NOT EXISTS fournisseur_id INTEGER REFERENCES fournisseurs(id) ON DELETE SET NULL;
     ALTER TABLE lignes ADD COLUMN IF NOT EXISTS fournisseur_vu BOOLEAN NOT NULL DEFAULT FALSE;
     ALTER TABLE operations ALTER COLUMN entite_id DROP NOT NULL;
+    ALTER TABLE lignes ADD COLUMN IF NOT EXISTS ecart_accepte BOOLEAN NOT NULL DEFAULT FALSE;
     ALTER TABLE operations ADD COLUMN IF NOT EXISTS fournisseur_id INTEGER REFERENCES fournisseurs(id) ON DELETE SET NULL;
     CREATE TABLE IF NOT EXISTS "session" (
       "sid" varchar NOT NULL COLLATE "default" PRIMARY KEY,

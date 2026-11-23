@@ -567,20 +567,27 @@ app.get('/rapprochement', requireAuth, async (req, res) => {
   const comptes = await listeComptes();
   if (!comptes.length) return res.render('rapprochement', { comptes, compte: null, lignes: [], releves: [], filtre: 'a_faire', ...(await refs()) });
   const compte = comptes.find((c) => String(c.id) === String(req.query.compte)) || comptes.find((c) => c.a_rapprocher) || comptes[0];
-  const filtre = req.query.filtre === 'tout' ? 'tout' : 'a_faire';
+  const filtre = ['tout', 'ecarts'].includes(req.query.filtre) ? req.query.filtre : 'a_faire';
   const { rows: lignes } = await pool.query(`
     SELECT l.*, o.libelle AS op_libelle, o.tiers AS op_tiers, o.date_op AS op_date, o.justif_nom AS op_justif,
+      o.entite_id AS op_entite_id, o.paiement AS op_paiement,
       r.periode_debut AS rc_debut, r.periode_fin AS rc_fin,
       (SELECT COUNT(*) FROM lignes x WHERE x.releve_id = r.id)::int AS rc_nb
     FROM lignes l
     LEFT JOIN operations o ON o.id = l.operation_id
     LEFT JOIN releves r ON r.id = l.releve_carte_id
     WHERE l.compte_id = $1 ${filtre === 'a_faire' ? 'AND l.operation_id IS NULL AND l.releve_carte_id IS NULL AND NOT l.ignoree' : ''}
+      ${filtre === 'ecarts' ? 'AND l.operation_id IS NOT NULL AND NOT l.ecart_accepte' : ''}
     ORDER BY l.date_op DESC, l.id DESC`, [compte.id]);
-  // Suggestions pour les lignes non rapprochées (même montant, ±45 jours).
+  const nomsEntites = Object.fromEntries((await refs()).entites.map((e) => [e.id, e.nom]));
   for (const l of lignes) {
     if (!l.operation_id && !l.total_carte && !l.ignoree) {
-      l.suggestions = await releves.candidats({ ...l, nature: compte.nature, banque: compte.banque, entite_id: compte.entite_id }, 45);
+      // Suggestions (même montant, ±45 jours), y compris celles dont la société ou le paiement saisis diffèrent.
+      const ctx = { ...l, nature: compte.nature, banque: compte.banque, entite_id: compte.entite_id };
+      l.suggestions = (await releves.candidats(ctx, 45, false)).map((o) => ({ ...o, ecarts: releves.ecarts(o, compte, nomsEntites) }))
+        .sort((x, y) => x.ecarts.length - y.ecarts.length || x.ecart - y.ecart);
+    } else if (l.operation_id && !l.ecart_accepte) {
+      l.ecarts = releves.ecarts({ entite_id: l.op_entite_id, paiement: l.op_paiement }, compte, nomsEntites);
     }
   }
   const { rows: rels } = await pool.query(
@@ -588,7 +595,14 @@ app.get('/rapprochement', requireAuth, async (req, res) => {
        (SELECT COUNT(*) FROM lignes WHERE releve_id = r.id)::int AS nb,
        (SELECT COALESCE(SUM(montant),0) FROM lignes WHERE releve_id = r.id) AS total
      FROM releves r WHERE r.compte_id = $1 ORDER BY r.periode_debut DESC NULLS LAST, r.id DESC`, [compte.id]);
-  res.render('rapprochement', { comptes, compte, lignes, releves: rels, filtre, ...(await refs()) });
+  const lignesAffichees = filtre === 'ecarts' ? lignes.filter((l) => l.ecarts && l.ecarts.length) : lignes;
+  // Nombre d'incohérences par compte (pour les onglets).
+  for (const c of comptes) {
+    const { rows: rr } = await pool.query(`SELECT o.entite_id, o.paiement FROM lignes l JOIN operations o ON o.id = l.operation_id
+      WHERE l.compte_id = $1 AND NOT l.ecart_accepte`, [c.id]);
+    c.nb_ecarts = rr.filter((o) => releves.ecarts(o, c, nomsEntites).length).length;
+  }
+  res.render('rapprochement', { comptes, compte, lignes: lignesAffichees, releves: rels, filtre, ...(await refs()) });
 });
 
 app.post('/rapprochement/auto', requireAuth, async (req, res) => {
@@ -601,17 +615,31 @@ app.post('/lignes/:id/associer', requireAuth, async (req, res) => {
   const { rows } = await pool.query('SELECT compte_id FROM lignes WHERE id=$1', [req.params.id]);
   try {
     await pool.query('UPDATE lignes SET operation_id=$1 WHERE id=$2', [Number(req.body.operation_id), req.params.id]);
+    if (req.body.corriger) await releves.corrigerDepuisLigne(req.params.id);
     await releves.attribuerSocietes();
-    flash(req, 'Ligne rapprochée.');
+    flash(req, req.body.corriger ? 'Ligne rapprochée et opération corrigée.' : 'Ligne rapprochée.');
   } catch (e) {
     flash(req, 'Cette opération est déjà rapprochée d\'une autre ligne.', 'err');
   }
   res.redirect(`/rapprochement?compte=${rows[0] ? rows[0].compte_id : ''}`);
 });
 
+app.post('/lignes/:id/corriger', requireAuth, async (req, res) => {
+  await releves.corrigerDepuisLigne(req.params.id);
+  const { rows } = await pool.query('SELECT compte_id FROM lignes WHERE id=$1', [req.params.id]);
+  flash(req, 'Opération corrigée d\'après le relevé.');
+  res.redirect(`/rapprochement?compte=${rows[0] ? rows[0].compte_id : ''}&filtre=${req.body.filtre || 'tout'}`);
+});
+
+app.post('/lignes/:id/garder', requireAuth, async (req, res) => {
+  const { rows } = await pool.query('UPDATE lignes SET ecart_accepte=TRUE WHERE id=$1 RETURNING compte_id', [req.params.id]);
+  flash(req, 'Saisie conservée telle quelle.');
+  res.redirect(`/rapprochement?compte=${rows[0] ? rows[0].compte_id : ''}&filtre=${req.body.filtre || 'tout'}`);
+});
+
 app.post('/lignes/:id/defaire', requireAuth, async (req, res) => {
   const { rows } = await pool.query(
-    'UPDATE lignes SET operation_id=NULL, releve_carte_id=NULL, ignoree=FALSE WHERE id=$1 RETURNING compte_id', [req.params.id]);
+    'UPDATE lignes SET operation_id=NULL, releve_carte_id=NULL, ignoree=FALSE, ecart_accepte=FALSE WHERE id=$1 RETURNING compte_id', [req.params.id]);
   flash(req, 'Rapprochement annulé.');
   res.redirect(`/rapprochement?compte=${rows[0] ? rows[0].compte_id : ''}&filtre=tout`);
 });

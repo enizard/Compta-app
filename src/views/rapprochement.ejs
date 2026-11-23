@@ -16,7 +16,7 @@
 <div class="tabs">
   <% comptes.forEach(c => { %>
     <a class="<%= c.id === compte.id ? 'actif' : '' %>" href="/rapprochement?compte=<%= c.id %>">
-      <%= c.libelle %><% if (c.a_rapprocher) { %> <span class="badge"><%= c.a_rapprocher %></span><% } %>
+      <%= c.libelle %><% if (c.a_rapprocher) { %> <span class="badge"><%= c.a_rapprocher %></span><% } %><% if (c.nb_ecarts) { %> <span class="badge warn" title="Incohérences à vérifier">⚠ <%= c.nb_ecarts %></span><% } %>
     </a>
   <% }) %>
 </div>
@@ -31,7 +31,8 @@
   </form>
   <span class="spacer"></span>
   <a class="<%= filtre === 'a_faire' ? 'actif' : '' %>" href="/rapprochement?compte=<%= compte.id %>">À rapprocher</a> ·
-  <a class="<%= filtre === 'tout' ? 'actif' : '' %>" href="/rapprochement?compte=<%= compte.id %>&filtre=tout">Toutes les lignes</a>
+  <a class="<%= filtre === 'tout' ? 'actif' : '' %>" href="/rapprochement?compte=<%= compte.id %>&filtre=tout">Toutes les lignes</a> ·
+  <a class="<%= filtre === 'ecarts' ? 'actif' : '' %>" href="/rapprochement?compte=<%= compte.id %>&filtre=ecarts">Incohérences<% if (compte.nb_ecarts) { %> (<%= compte.nb_ecarts %>)<% } %></a>
 </div>
 
 <form method="post" action="/lignes/creer" id="fcreer">
@@ -53,6 +54,12 @@
           <span class="pos">✓</span> <a href="/operations/<%= l.operation_id %>/edit"><%= l.op_tiers || l.op_libelle %></a>
           <small class="muted">(<%= l.op_date.toLocaleDateString('fr-FR') %><%= l.op_justif ? ', 📎' : '' %>)</small>
           <form method="post" action="/lignes/<%= l.id %>/defaire" class="inline"><button class="link">défaire</button></form>
+          <% if (l.ecarts && l.ecarts.length) { %>
+            <div class="ecart">⚠ <%= l.ecarts.join(' ; ') %>
+              <form method="post" action="/lignes/<%= l.id %>/corriger" class="inline"><input type="hidden" name="filtre" value="<%= filtre %>"><button class="secondary">Corriger selon le relevé</button></form>
+              <form method="post" action="/lignes/<%= l.id %>/garder" class="inline"><input type="hidden" name="filtre" value="<%= filtre %>"><button class="link">garder ma saisie</button></form>
+            </div>
+          <% } %>
         <% } else if (l.total_carte && l.releve_carte_id) { %>
           <span class="pos">✓</span> Total <%= l.total_carte %> = détail de carte
           <% if (l.rc_debut) { %>du <%= l.rc_debut.toLocaleDateString('fr-FR') %> au <%= l.rc_fin ? l.rc_fin.toLocaleDateString('fr-FR') : '?' %><% } %>
@@ -68,10 +75,11 @@
             <form method="post" action="/lignes/<%= l.id %>/associer" class="inline">
               <select name="operation_id">
                 <% l.suggestions.forEach(o => { %>
-                  <option value="<%= o.id %>"><%= o.date_op.toLocaleDateString('fr-FR') %> · <%= o.tiers || o.libelle %> · <%= fmt(o.montant_ttc) %> €</option>
+                  <option value="<%= o.id %>"><%= o.ecarts.length ? '⚠ ' : '' %><%= o.date_op.toLocaleDateString('fr-FR') %> · <%= o.tiers || o.libelle %> · <%= fmt(o.montant_ttc) %> €<%= o.ecarts.length ? ' — ' + o.ecarts.join(' ; ') : '' %></option>
                 <% }) %>
               </select>
               <button class="secondary">Associer</button>
+              <% if (l.suggestions.some(o => o.ecarts.length)) { %><button class="secondary" name="corriger" value="1" title="Associer et corriger société / paiement selon le relevé">Associer et corriger</button><% } %>
             </form>
           <% } else { %><span class="muted">Aucun ticket correspondant</span><% } %>
           · <a href="/operations/new?ligne=<%= l.id %>">Créer l'écriture</a>

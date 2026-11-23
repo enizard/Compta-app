@@ -103,27 +103,61 @@ async function attribuerSocietes() {
     WHERE l.operation_id = o.id AND o.paiement IS NULL`);
 }
 
-// Opérations pouvant correspondre à une ligne (même montant, même société, dates proches, pas encore rapprochées).
-async function candidats(l, jours) {
+// Moyen de paiement attendu pour une ligne d'un compte donné.
+function paiementAttendu(c) {
+  if (c.nature === 'carte') return c.banque === 'AMEX' ? 'AMEX' : 'CB CIC';
+  return 'Virement / prélèvement';
+}
+
+// Écarts entre ce qui a été saisi sur l'opération et ce que dit le relevé.
+function ecarts(op, compte, nomsEntites) {
+  const e = [];
+  if (op.entite_id && compte.entite_id && op.entite_id !== compte.entite_id) {
+    e.push(`société saisie « ${nomsEntites[op.entite_id] || '?'} », le relevé indique « ${nomsEntites[compte.entite_id] || '?'} »`);
+  }
+  const attendu = paiementAttendu(compte);
+  const okCompte = compte.nature === 'compte' && ['Virement / prélèvement', 'Autre'].includes(op.paiement);
+  if (op.paiement && op.paiement !== attendu && !okCompte) {
+    e.push(`paiement saisi « ${op.paiement} », le relevé indique « ${attendu} »`);
+  }
+  return e;
+}
+
+// Opérations pouvant correspondre à une ligne (même montant, dates proches, pas encore rapprochées).
+// strict : même société et moyen de paiement compatible. Sinon : toutes (pour détecter les erreurs de saisie).
+async function candidats(l, jours, strict = true) {
   const type = Number(l.montant) < 0 ? 'depense' : 'recette';
-  let paiementSql = '';
-  if (l.nature === 'carte') {
-    paiementSql = l.banque === 'AMEX' ? "AND (o.paiement = 'AMEX' OR o.paiement IS NULL)" : "AND (o.paiement = 'CB CIC' OR o.paiement IS NULL)";
-  } else {
-    // Sur le compte courant : pas les achats payés par carte (ils sont dans le relevé de carte) ni les avances en compte courant.
-    paiementSql = "AND (o.paiement IS NULL OR o.paiement NOT IN ('CB CIC','AMEX','Avance CC'))";
+  let filtre = '';
+  if (strict) {
+    filtre = 'AND ($5::int IS NULL OR o.entite_id IS NULL OR o.entite_id = $5) ';
+    if (l.nature === 'carte') {
+      filtre += l.banque === 'AMEX' ? "AND (o.paiement = 'AMEX' OR o.paiement IS NULL)" : "AND (o.paiement = 'CB CIC' OR o.paiement IS NULL)";
+    } else {
+      // Sur le compte courant : pas les achats payés par carte (ils sont dans le relevé de carte) ni les avances en compte courant.
+      filtre += "AND (o.paiement IS NULL OR o.paiement NOT IN ('CB CIC','AMEX','Avance CC'))";
+    }
   }
   const { rows } = await pool.query(`
-    SELECT o.id, o.date_op, o.libelle, o.tiers, o.montant_ttc, e.nom AS entite,
+    SELECT o.id, o.date_op, o.libelle, o.tiers, o.montant_ttc, o.entite_id, o.paiement, e.nom AS entite,
       ABS(o.date_op - $3::date) AS ecart
     FROM operations o LEFT JOIN entites e ON e.id = o.entite_id
     WHERE o.type = $1 AND ABS(o.montant_ttc - ABS($2::numeric)) < 0.01
       AND ABS(o.date_op - $3::date) <= $4
-      AND ($5::int IS NULL OR o.entite_id IS NULL OR o.entite_id = $5)
+      AND ($5::int IS NULL OR TRUE)
       AND NOT EXISTS (SELECT 1 FROM lignes x WHERE x.operation_id = o.id)
-      ${paiementSql}
+      ${filtre}
     ORDER BY ecart, o.id`, [type, l.montant, l.date_op, jours, l.entite_id]);
   return rows;
 }
 
-module.exports = { trouverCompte, insererLignes, rapprocher, candidats, attribuerSocietes };
+// Corrige l'opération rapprochée selon le relevé (société du compte, moyen de paiement).
+async function corrigerDepuisLigne(ligneId) {
+  const { rows } = await pool.query(
+    `SELECT l.operation_id, c.entite_id, c.nature, c.banque FROM lignes l JOIN comptes c ON c.id = l.compte_id WHERE l.id=$1`, [ligneId]);
+  const r = rows[0];
+  if (!r || !r.operation_id) return;
+  await pool.query('UPDATE operations SET entite_id = COALESCE($1, entite_id), paiement = $2, updated_at = NOW() WHERE id = $3',
+    [r.entite_id, paiementAttendu(r), r.operation_id]);
+}
+
+module.exports = { trouverCompte, insererLignes, rapprocher, candidats, attribuerSocietes, ecarts, paiementAttendu, corrigerDepuisLigne };

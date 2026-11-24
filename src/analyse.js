@@ -24,7 +24,10 @@ Pour CHAQUE facture ou ticket distinct visible, extrais les informations. Répon
     "paiement": "CB CIC"|"AMEX"|"Avance CC"|"Autre"|null,
     "categorie": string|null,          // une valeur EXACTE de cette liste : ${JSON.stringify(categories)}
     "libelle": string|null,            // description courte de l'achat (ex. "Fournitures de bureau")
-    "type_document": "facture" | "recu" | "ticket",  // facture (invoice), reçu de paiement (receipt), ticket de caisse
+    "type_document": "facture" | "ticket" | "facturette" | "recu",
+      // facture = facture d'achat (invoice) ; ticket = ticket de caisse détaillé ;
+      // facturette = petit ticket du terminal de carte bancaire (« CARTE BANCAIRE », « TICKET CLIENT », montant, n° de carte masqué, sans détail d'articles) ;
+      // recu = reçu / confirmation de paiement émis par le fournisseur (« Receipt », « Payment receipt », « Reçu de paiement »)
     "numero_facture": string|null,     // numéro de facture imprimé (aussi rappelé sur un reçu), sinon null
     "montant_paye": number|null,       // montant effectivement débité si différent du total (crédit, avoir, solde appliqué)
     "position": string|null,           // où se trouve ce ticket sur la page s'il y en a plusieurs (ex. "en haut à gauche")
@@ -34,7 +37,7 @@ Pour CHAQUE facture ou ticket distinct visible, extrais les informations. Répon
 ] }
 Si la page est vide ou ne contient aucun ticket/facture, renvoie { "documents": [] }.
 Une facture de plusieurs pages ne compte qu'une fois (ne renvoie rien pour une page de suite sans total).
-Règles pour les mentions MANUSCRITES (écrites au stylo sur le ticket) :
+Règles pour les mentions MANUSCRITES (écrites au stylo sur le document — ticket, facturette CB, facture ou reçu ; regarde aussi les marges et le verso visible) :
 - Société : "LMF" → "LMF" ; "SAN" ou "Simple and New" → "SAN" ; "BMG" → "BMG" ; "SCI" ou "SCI E NIZARD" ou "Nizard" → "SCI".
 - Paiement : "Avance CC" ou "CC" (avance en compte courant) → "Avance CC" ; "CB CIC" ou "CIC" → "CB CIC" ; "AMEX" → "AMEX".
 - Si aucune mention manuscrite de paiement : déduis-le de la carte imprimée (American Express → "AMEX"), sinon null.
@@ -125,7 +128,7 @@ const PROMPT_CLASSER = `Regarde ce document (première page) et dis de quoi il s
   "solde_debut": number|null,
   "solde_fin": number|null
 }
-- "tickets" : facture d'achat, ticket de caisse, ou scan de plusieurs tickets.
+- "tickets" : facture d'achat, ticket de caisse, facturette de carte bancaire, reçu de paiement, ou scan de plusieurs de ces documents.
 - "releve_compte" : relevé / extrait de compte bancaire (liste de mouvements débit/crédit d'un compte courant).
 - "releve_carte" : relevé des opérations d'une carte de paiement (détail des paiements carte d'un mois, carte CIC à débit différé, ou relevé American Express).
 - banque : "AMEX" pour tout relevé American Express (y compris carte American Express distribuée par le CIC) ; "CIC" pour CIC / Crédit Mutuel-CIC.

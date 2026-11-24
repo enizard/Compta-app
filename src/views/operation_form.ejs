@@ -26,9 +26,13 @@
       <br>Si c'est le même ticket, cliquez sur « Ignorer ce ticket » en bas.</div>
   <% } %>
   <% const factureRecu = typeof locals.factureRecu !== 'undefined' ? locals.factureRecu : null; %>
-  <% if (depot && depot.resultat && depot.resultat.type_document === 'recu') { %>
+  <% const TYPES = { facture: 'Facture', ticket: 'Ticket de caisse', facturette: 'Facturette carte bancaire', recu: 'Reçu de paiement' }; %>
+  <% if (depot && depot.resultat && TYPES[depot.resultat.type_document]) { %>
+    <p class="muted">Document reconnu : <strong><%= TYPES[depot.resultat.type_document] %></strong><% if (depot.resultat.mentions_manuscrites) { %> — mentions manuscrites lues : « <%= depot.resultat.mentions_manuscrites %> »<% } %></p>
+  <% } %>
+  <% if (depot && depot.resultat && ['recu', 'facturette'].includes(depot.resultat.type_document)) { %>
     <div class="flash recu">
-      <strong>Ce document est un reçu de paiement.</strong>
+      <strong>Ce document est une preuve de paiement (<%= TYPES[depot.resultat.type_document].toLowerCase() %>).</strong>
       <% if (factureRecu) { %>
         Il correspond à la facture <a href="/operations/<%= factureRecu.id %>/edit" target="_blank"><%= factureRecu.date_op.toLocaleDateString('fr-FR') %> — <%= factureRecu.tiers || factureRecu.libelle %> — <%= fmt(factureRecu.montant_ttc) %> €<%= factureRecu.entite ? ' (' + factureRecu.entite + ')' : '' %></a>.
         <form method="post" action="/depot/<%= depot.id %>/rattacher" class="inline">

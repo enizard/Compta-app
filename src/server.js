@@ -338,7 +338,13 @@ async function creerOperationsAuto(lotId) {
       if (facture.operation_id) await rattacherRecu(facture.operation_id, r, { nom: d.nom, mimetype: d.mimetype, data: d.data });
       continue;
     }
-    if (r.type_document === 'recu') {
+    const preuvePaiement = r.type_document === 'recu' || r.type_document === 'facturette';
+    // Deuxième reçu identique dans le même e-mail : ignoré.
+    if (preuvePaiement && frere.some((f) => f.operation_id && f.resultat && ['recu', 'facturette'].includes(f.resultat.type_document) && memeFourn(f.resultat, r))) {
+      await pool.query("UPDATE depots SET statut='ignore' WHERE id=$1", [d.id]);
+      continue;
+    }
+    if (preuvePaiement) {
       const opFact = await factureDuRecu(r);
       if (opFact) {
         await rattacherRecu(opFact, r, { nom: d.nom, mimetype: d.mimetype, data: d.data });
@@ -381,7 +387,7 @@ async function creerOperationsAuto(lotId) {
         await releves.paiementDepuisDocument(r), r.carte || null,
         d.nom, d.mimetype, d.data, l[0].created_by,
         r.montant_paye && Math.abs(r.montant_paye - r.montant_ttc) > 0.01 ? r.montant_paye : null,
-        r.numero_facture || null, r.type_document === 'recu' ? r.date : null]);
+        r.numero_facture || null, ['recu', 'facturette'].includes(r.type_document) ? r.date : null]);
     await fournisseurs.lierOperation(ins[0].id, r.fournisseur);
     await pool.query("UPDATE depots SET statut='enregistre', operation_id=$2 WHERE id=$1", [d.id, ins[0].id]);
     crees++;
@@ -542,7 +548,7 @@ app.get('/depot/:id', requireAuth, async (req, res) => {
   }
   // Reçu de paiement : on propose de le rattacher à la facture déjà saisie.
   let factureRecu = null;
-  if (r.type_document === 'recu') {
+  if (r.type_document === 'recu' || r.type_document === 'facturette') {
     const id = await factureDuRecu(r);
     if (id) {
       const { rows: fr } = await pool.query(

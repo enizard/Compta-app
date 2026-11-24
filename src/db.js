@@ -151,6 +151,11 @@ async function init() {
     ALTER TABLE operations ADD COLUMN IF NOT EXISTS livraison TEXT;
     ALTER TABLE operations ADD COLUMN IF NOT EXISTS reglement TEXT;
     ALTER TABLE operations ADD COLUMN IF NOT EXISTS montant_debite NUMERIC(12,2);
+    ALTER TABLE operations ADD COLUMN IF NOT EXISTS numero_facture TEXT;
+    ALTER TABLE operations ADD COLUMN IF NOT EXISTS date_paiement DATE;
+    ALTER TABLE operations ADD COLUMN IF NOT EXISTS recu_nom TEXT;
+    ALTER TABLE operations ADD COLUMN IF NOT EXISTS recu_type TEXT;
+    ALTER TABLE operations ADD COLUMN IF NOT EXISTS recu_data BYTEA;
     CREATE TABLE IF NOT EXISTS cartes (
       numero TEXT PRIMARY KEY,
       paiement TEXT NOT NULL,

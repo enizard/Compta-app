@@ -25,6 +25,22 @@
       <% doublons.forEach(o => { %><br>· <a href="/operations/<%= o.id %>/edit" target="_blank"><%= o.date_op.toLocaleDateString('fr-FR') %> — <%= o.tiers || o.libelle %> — <%= fmt(o.montant_ttc) %> € (<%= o.entite %>)</a><% }) %>
       <br>Si c'est le même ticket, cliquez sur « Ignorer ce ticket » en bas.</div>
   <% } %>
+  <% const factureRecu = typeof locals.factureRecu !== 'undefined' ? locals.factureRecu : null; %>
+  <% if (depot && depot.resultat && depot.resultat.type_document === 'recu') { %>
+    <div class="flash recu">
+      <strong>Ce document est un reçu de paiement.</strong>
+      <% if (factureRecu) { %>
+        Il correspond à la facture <a href="/operations/<%= factureRecu.id %>/edit" target="_blank"><%= factureRecu.date_op.toLocaleDateString('fr-FR') %> — <%= factureRecu.tiers || factureRecu.libelle %> — <%= fmt(factureRecu.montant_ttc) %> €<%= factureRecu.entite ? ' (' + factureRecu.entite + ')' : '' %></a>.
+        <form method="post" action="/depot/<%= depot.id %>/rattacher" class="inline">
+          <input type="hidden" name="operation_id" value="<%= factureRecu.id %>">
+          <button>Rattacher à cette facture</button>
+        </form>
+        <br><small>La date et le moyen de paiement seront ajoutés à la facture, et le reçu y sera joint.</small>
+      <% } else { %>
+        Aucune facture correspondante n'a été trouvée : vous pouvez l'enregistrer comme une opération ci-dessous.
+      <% } %>
+    </div>
+  <% } %>
   <% if (depot && depot.erreur) { %>
     <div class="flash err">L'analyse automatique n'a pas fonctionné (<%= depot.erreur %>). Complétez à la main.</div>
   <% } else if (depot && depot.resultat) { %>
@@ -60,6 +76,9 @@
     <label>Montant TTC (€) *<input name="montant_ttc" inputmode="decimal" value="<%= op.montant_ttc != null ? String(op.montant_ttc).replace('.', ',') : '' %>" required></label>
     <label>dont TVA (€)<input name="tva" inputmode="decimal" value="<%= op.tva != null && Number(op.tva) ? String(op.tva).replace('.', ',') : '' %>"></label>
     <label>Montant HT (€)<input id="ht" readonly tabindex="-1" class="readonly"></label>
+    <label>N° de facture<input name="numero_facture" value="<%= op.numero_facture || '' %>"></label>
+    <label>Date de paiement<input type="date" name="date_paiement" value="<%= op.date_paiement || '' %>"></label>
+    <% if (op.recu_nom) { %><div><small>Reçu de paiement : <a href="/operations/<%= op.id %>/recu" target="_blank"><%= op.recu_nom %></a></small></div><% } %>
     <label>Montant débité (€) <small class="muted">si différent : crédit, avoir…</small><input name="montant_debite" inputmode="decimal" value="<%= op.montant_debite != null ? String(op.montant_debite).replace('.', ',') : '' %>"></label>
     <label>Paiement
       <select name="paiement">

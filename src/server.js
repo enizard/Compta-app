@@ -7,7 +7,7 @@ const multer = require('multer');
 const crypto = require('crypto');
 const { pool, init } = require('./db');
 const LIVRAISONS = ['Non livré', 'Partiellement livré', 'Livré en totalité'];
-const REGLEMENTS = ['Non réglé', 'Partiellement réglé', 'Réglé en totalité'];
+const REGLEMENTS = ['À régler', 'Partiellement réglé', 'Déjà réglé'];
 const { analyser, classer, extraireLignes, decouperPdf, PAIEMENTS } = require('./analyse');
 const releves = require('./releves');
 const fournisseurs = require('./fournisseurs');
@@ -489,7 +489,7 @@ async function enregistrerReglements(opId, b, montantTtc) {
     await pool.query('INSERT INTO reglements (operation_id, date_reg, montant, paiement) VALUES ($1,$2,$3,$4)',
       [opId, dates[i] || null, m, PAIEMENTS.includes(modes[i]) ? modes[i] : null]);
   }
-  const statut = total <= 0 ? 'Non réglé' : total + 0.005 >= montantTtc ? 'Réglé en totalité' : 'Partiellement réglé';
+  const statut = total <= 0 ? 'À régler' : total + 0.005 >= montantTtc ? 'Déjà réglé' : 'Partiellement réglé';
   await pool.query('UPDATE operations SET reglement=$1 WHERE id=$2', [statut, opId]);
 }
 

@@ -24,6 +24,9 @@ Pour CHAQUE facture ou ticket distinct visible, extrais les informations. Répon
     "paiement": "CB CIC"|"AMEX"|"Avance CC"|"Autre"|null,
     "categorie": string|null,          // une valeur EXACTE de cette liste : ${JSON.stringify(categories)}
     "libelle": string|null,            // description courte de l'achat (ex. "Fournitures de bureau")
+    "type_document": "facture" | "recu" | "ticket",  // facture (invoice), reçu de paiement (receipt), ticket de caisse
+    "numero_facture": string|null,     // numéro de facture imprimé (aussi rappelé sur un reçu), sinon null
+    "montant_paye": number|null,       // montant effectivement débité si différent du total (crédit, avoir, solde appliqué)
     "position": string|null,           // où se trouve ce ticket sur la page s'il y en a plusieurs (ex. "en haut à gauche")
     "mentions_manuscrites": string|null, // tout texte écrit à la main sur ce ticket, recopié tel quel
     "confiance": "haute"|"moyenne"|"basse"

@@ -278,9 +278,32 @@ async function creerOperationsAuto(lotId) {
   const { rows: deps } = await pool.query(
     "SELECT id, nom, mimetype, data, resultat FROM depots WHERE lot_id=$1 AND statut='a_valider' AND erreur IS NULL ORDER BY page, ordre", [lotId]);
   let crees = 0;
+  // Autres documents du même e-mail (facture + reçu d'un même paiement).
+  const { rows: frere } = await pool.query(
+    `SELECT d.id, d.statut, d.operation_id, d.resultat FROM depots d JOIN emails_recus m ON d.lot_id = ANY(m.lot_ids)
+     WHERE $1 = ANY(m.lot_ids) AND d.lot_id <> $1`, [lotId]);
+  const memeFourn = (a, b) => fournisseurs.cle(a.fournisseur || '') === fournisseurs.cle(b.fournisseur || '')
+    || (a.numero_facture && a.numero_facture === b.numero_facture);
   for (const d of deps) {
     const r = d.resultat || {};
     if (!r.montant_ttc || !r.date) continue;
+    // Un reçu accompagné de sa facture dans le même e-mail : on ne garde que la facture.
+    if (r.type_document === 'recu' && frere.some((f) => f.resultat && f.resultat.type_document === 'facture' && memeFourn(f.resultat, r))) {
+      await pool.query("UPDATE depots SET statut='ignore' WHERE id=$1", [d.id]);
+      continue;
+    }
+    if (r.type_document === 'facture') {
+      const recu = frere.find((f) => f.operation_id && f.resultat && f.resultat.type_document === 'recu' && memeFourn(f.resultat, r));
+      if (recu) {
+        // Le reçu a été enregistré avant la facture : l'opération reprend les données et le justificatif de la facture.
+        await pool.query(`UPDATE operations SET montant_ttc=$1, tva=$2, date_op=$3, justif_nom=$4, justif_type=$5, justif_data=$6, updated_at=NOW()
+          WHERE id=$7`, [r.montant_ttc, r.tva || 0, r.date, d.nom, d.mimetype, d.data, recu.operation_id]);
+        await pool.query("UPDATE depots SET statut='ignore', operation_id=NULL WHERE id=$1", [recu.id]);
+        await pool.query("UPDATE depots SET statut='enregistre', operation_id=$2 WHERE id=$1", [d.id, recu.operation_id]);
+        crees++;
+        continue;
+      }
+    }
     const { rows: dbl } = await pool.query(`
       SELECT EXISTS (SELECT 1 FROM depots d2 JOIN emails_recus m ON d2.lot_id = ANY(m.lot_ids) AND $3 = ANY(m.lot_ids)
                      WHERE d2.operation_id = o.id) AS meme_email
@@ -297,7 +320,9 @@ async function creerOperationsAuto(lotId) {
          justif_nom, justif_type, justif_data, created_by)
        VALUES ($1,$2,'depense',$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING id`,
       [ent ? ent.id : null, r.date, cat ? cat.id : null, r.libelle || `Facture ${r.fournisseur || ''}`.trim(), r.fournisseur || null,
-        r.montant_ttc, r.tva || 0, l[0].info, PAIEMENTS.includes(r.paiement) ? r.paiement : null, r.carte || null,
+        r.montant_ttc, r.tva || 0,
+        l[0].info + (r.montant_paye && Math.abs(r.montant_paye - r.montant_ttc) > 0.01 ? ` — montant débité : ${r.montant_paye} € (crédit ou avoir appliqué)` : ''),
+        PAIEMENTS.includes(r.paiement) ? r.paiement : null, r.carte || null,
         d.nom, d.mimetype, d.data, l[0].created_by]);
     await fournisseurs.lierOperation(ins[0].id, r.fournisseur);
     await pool.query("UPDATE depots SET statut='enregistre', operation_id=$2 WHERE id=$1", [d.id, ins[0].id]);
@@ -307,7 +332,6 @@ async function creerOperationsAuto(lotId) {
     await releves.rapprocher();
     fournisseurs.mettreAJour();
   }
-  // Statut de l'e-mail d'origine.
   // Statut de l'e-mail d'origine, sur l'ensemble de ses pièces jointes.
   await pool.query(`UPDATE emails_recus m SET statut = CASE
       WHEN EXISTS (SELECT 1 FROM lots l WHERE l.id = ANY(m.lot_ids) AND l.statut = 'en_cours') THEN 'en_cours'

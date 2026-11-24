@@ -73,6 +73,13 @@ async function traiterMail(mail, mid, deps) {
       [mid, de, sujet, recu, JSON.stringify(conf)]);
     return;
   }
+  // Notifications Google (sécurité, bienvenue…) : jamais des factures.
+  const adr = (mail.from && mail.from.value && mail.from.value[0] && mail.from.value[0].address || '').toLowerCase();
+  if (/@accounts\.google\.com$|^mail-noreply@google\.com$|^workspace-noreply@google\.com$/.test(adr)) {
+    await pool.query(
+      `INSERT INTO emails_recus (message_id, de, sujet, recu_le, statut) VALUES ($1,$2,$3,$4,'pas_facture')`, [mid, de, sujet, recu]);
+    return;
+  }
   // Pièces jointes exploitables (PDF, images). Sinon, le contenu de l'e-mail lui-même sert de facture.
   const pj = (mail.attachments || []).filter((a) => /^application\/pdf$|^image\/(jpeg|png|webp|heic)/i.test(a.contentType)
     && !(a.contentDisposition === 'inline' && /^image\//.test(a.contentType) && a.size < 30000));

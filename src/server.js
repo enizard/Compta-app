@@ -301,9 +301,11 @@ async function creerOperationsAuto(lotId) {
     fournisseurs.mettreAJour();
   }
   // Statut de l'e-mail d'origine.
-  const { rows: reste } = await pool.query("SELECT COUNT(*)::int AS n FROM depots WHERE lot_id=$1 AND statut='a_valider'", [lotId]);
-  await pool.query(`UPDATE emails_recus SET statut = CASE WHEN $2 > 0 THEN 'a_valider' ELSE 'traite' END
-    WHERE $1 = ANY(lot_ids) AND statut IN ('en_cours','a_valider','traite')`, [lotId, reste[0].n]);
+  const { rows: reste } = await pool.query(
+    "SELECT COUNT(*) FILTER (WHERE statut='a_valider')::int AS n, COUNT(*)::int AS total FROM depots WHERE lot_id=$1", [lotId]);
+  // Aucune facture trouvée dans l'e-mail : on le marque comme tel (et on ne garde pas de dépôt vide).
+  await pool.query(`UPDATE emails_recus SET statut = CASE WHEN $3 = 0 THEN 'pas_facture' WHEN $2 > 0 THEN 'a_valider' ELSE 'traite' END
+    WHERE $1 = ANY(lot_ids) AND statut IN ('en_cours','a_valider','traite')`, [lotId, reste[0].n, reste[0].total]);
 }
 
 app.post('/depot', requireAuth, upload.array('fichier', 50), async (req, res) => {

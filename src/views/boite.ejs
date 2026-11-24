@@ -1,5 +1,5 @@
 <%- include('partials/header') %>
-<% const STATUT = { traite: ['Enregistrée automatiquement', 'pos'], a_valider: ['À valider (doublon possible ou lecture incomplète)', 'neg'], en_cours: ['Lecture en cours…', 'muted'], deja_mis: ['Déjà reçue — ignorée', 'muted'], confirmation: ['Confirmation de transfert Gmail', ''] }; %>
+<% const STATUT = { traite: ['Enregistrée automatiquement', 'pos'], a_valider: ['À valider (doublon possible ou lecture incomplète)', 'neg'], en_cours: ['Lecture en cours…', 'muted'], deja_mis: ['Déjà reçue — ignorée', 'muted'], pas_facture: ['Pas une facture — ignoré', 'muted'], confirmation: ['Confirmation de transfert Gmail', ''] }; %>
 <div class="head">
   <h1>Boîte factures</h1>
   <% if (active) { %><form method="post" action="/boite/relever" class="inline"><button class="secondary">Relever maintenant</button></form><% } %>

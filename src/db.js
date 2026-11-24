@@ -176,6 +176,8 @@ async function init() {
   await pool.query("DELETE FROM depots WHERE lot_id IS NULL");
   await pool.query("UPDATE operations SET paiement='Virement / prélèvement CIC' WHERE paiement='Virement / prélèvement'");
   await pool.query("UPDATE operations SET reglement = CASE reglement WHEN 'Non réglé' THEN 'À régler' WHEN 'Réglé en totalité' THEN 'Déjà réglé' ELSE reglement END WHERE reglement IN ('Non réglé','Réglé en totalité')");
+  await pool.query(`UPDATE emails_recus SET statut='pas_facture'
+    WHERE statut IN ('en_cours','traite') AND (de ILIKE '%@accounts.google.com>%' OR de ILIKE '%mail-noreply@google.com>%')`);
   for (const nom of ENTITES) {
     await pool.query('INSERT INTO entites (nom) VALUES ($1) ON CONFLICT DO NOTHING', [nom]);
   }

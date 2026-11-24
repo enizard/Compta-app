@@ -148,20 +148,7 @@ app.post('/login', async (req, res) => {
 app.post('/logout', (req, res) => req.session.destroy(() => res.redirect('/login')));
 
 // ---------- opérations ----------
-app.get('/', requireAuth, async (req, res) => {
-  const { rows: lots } = await pool.query(`
-    SELECT l.id, l.nom, l.statut, l.nature, l.created_at, l.total_pages, l.pages_traitees,
-      COUNT(d.id) FILTER (WHERE d.statut = 'a_valider')::int AS restants,
-      (SELECT COUNT(*) FROM lignes x JOIN releves r ON r.id = x.releve_id WHERE r.lot_id = l.id)::int AS nb_lignes,
-      (SELECT r.compte_id FROM releves r WHERE r.lot_id = l.id LIMIT 1) AS compte_id,
-      (SELECT COALESCE(SUM(r.nb_doublons),0) FROM releves r WHERE r.lot_id = l.id)::int AS nb_doublons
-    FROM lots l LEFT JOIN depots d ON d.lot_id = l.id
-    GROUP BY l.id
-    HAVING l.statut = 'en_cours' OR COUNT(d.id) FILTER (WHERE d.statut = 'a_valider') > 0
-      OR l.created_at > NOW() - INTERVAL '1 day'
-    ORDER BY l.id DESC LIMIT 50`);
-  res.render('depot', { iaActive: !!process.env.ANTHROPIC_API_KEY, lots });
-});
+app.get('/', requireAuth, (req, res) => res.redirect('/operations'));
 
 // Relevé : on extrait les lignes page par page (dans l'ordre, pour suivre les sections),
 // on range le détail de carte d'un extrait de compte dans le compte « carte », puis on rapproche.
@@ -276,12 +263,13 @@ async function traiterLot(lotId, fichier, userId) {
 // File d'attente : les fichiers déposés sont traités l'un après l'autre en arrière-plan.
 let fileAttente = Promise.resolve();
 function mettreEnFile(lotId, f, userId) {
-  fileAttente = fileAttente.then(() => traiterLot(lotId, f, userId)).catch((e) => console.error('File :', e));
+  fileAttente = fileAttente.then(() => traiterLot(lotId, f, userId)).catch((e) => console.error('File :', e))
+    .then(() => pool.query('UPDATE lots SET data=NULL WHERE id=$1', [lotId]).catch(() => {}));
 }
 
 app.post('/depot', requireAuth, upload.array('fichier', 50), async (req, res) => {
   const fichiers = req.files || [];
-  if (!fichiers.length) { flash(req, 'Aucun fichier reçu.', 'err'); return res.redirect('/'); }
+  if (!fichiers.length) { flash(req, 'Aucun fichier reçu.', 'err'); return res.redirect('/operations'); }
   const refuses = fichiers.filter((f) => !/^image\/|^application\/pdf$/.test(f.mimetype));
   const ids = [];
   const dejaMis = [];
@@ -297,18 +285,26 @@ app.post('/depot', requireAuth, upload.array('fichier', 50), async (req, res) =>
       dejaMis.push(`${f.originalname} (déjà déposé le ${quand}${ex[0].nom !== f.originalname ? ` sous le nom ${ex[0].nom}` : ''})`);
       continue;
     }
-    const { rows } = await pool.query('INSERT INTO lots (nom, created_by, hash) VALUES ($1,$2,$3) RETURNING id',
-      [f.originalname, req.session.user.id, hash]);
+    const { rows } = await pool.query('INSERT INTO lots (nom, created_by, hash, data, mimetype) VALUES ($1,$2,$3,$4,$5) RETURNING id',
+      [f.originalname, req.session.user.id, hash, f.buffer, f.mimetype]);
     ids.push(rows[0].id);
     mettreEnFile(rows[0].id, f, req.session.user.id);
   }
   const msgs = [];
-  if (ids.length) msgs.push(`${ids.length} fichier(s) en cours de traitement.`);
   if (dejaMis.length) msgs.push(`Déjà mis, non retraité : ${dejaMis.join(' ; ')}.`);
   if (refuses.length) msgs.push(`Format non pris en charge (PDF ou photo) : ${refuses.map((f) => f.originalname).join(', ')}.`);
-  if (ids.length === 1 && !dejaMis.length && !refuses.length) return res.redirect(`/lot/${ids[0]}`);
-  flash(req, msgs.join(' '), dejaMis.length || refuses.length ? 'err' : 'ok');
-  res.redirect('/');
+  // Appel depuis la zone de dépôt : on renvoie les lots, la fenêtre s'ouvre côté navigateur.
+  if ((req.get('Accept') || '').includes('application/json')) return res.json({ lots: ids, message: msgs.join(' ') });
+  if (msgs.length) flash(req, msgs.join(' '), 'err');
+  res.redirect(ids.length ? `/lot/${ids[0]}` : '/operations');
+});
+
+app.get('/lot/:id/fichier', requireAuth, async (req, res) => {
+  const { rows } = await pool.query('SELECT nom, mimetype, data FROM lots WHERE id=$1', [req.params.id]);
+  if (!rows[0] || !rows[0].data) return res.status(404).send('');
+  res.set('Content-Type', rows[0].mimetype);
+  res.set('Content-Disposition', `inline; filename*=UTF-8''${encodeURIComponent(rows[0].nom)}`);
+  res.send(rows[0].data);
 });
 
 app.get('/lots/etat.json', requireAuth, async (req, res) => {
@@ -357,9 +353,11 @@ app.get('/lot/:id', requireAuth, async (req, res) => {
   const e = await etatLot(req.params.id);
   if (!e) return res.redirect('/');
   const aValider = e.depots.filter((d) => d.statut === 'a_valider');
-  // Un seul ticket et traitement terminé : on va directement au formulaire.
-  if (e.lot.statut === 'termine' && e.depots.length === 1 && aValider.length === 1 && !req.query.liste) {
-    return res.redirect(`/depot/${aValider[0].id}`);
+  if (!req.query.liste) {
+    // Dès qu'un ticket est lu, on ouvre son formulaire.
+    if (aValider.length) return res.redirect(`/depot/${aValider[0].id}`);
+    // Lot de tickets entièrement traité : on passe au dépôt suivant, ou on revient aux opérations.
+    if (e.lot.statut === 'termine' && !e.releve) return res.redirect(await prochainLot());
   }
   res.render('lot', { ...e, aValider });
 });
@@ -368,15 +366,16 @@ app.get('/lot/:id/etat.json', requireAuth, async (req, res) => {
   const e = await etatLot(req.params.id);
   if (!e) return res.status(404).json({});
   res.json({ statut: e.lot.statut, total: e.lot.total_pages, faites: e.lot.pages_traitees,
-    tickets: e.releve ? e.releve.nb_lignes : e.depots.length });
+    tickets: e.releve ? e.releve.nb_lignes : e.depots.length,
+    a_valider: e.depots.filter((d) => d.statut === 'a_valider').length });
 });
 
 app.get('/depot/:id', requireAuth, async (req, res) => {
   const { rows } = await pool.query(
     'SELECT id, lot_id, page, nom, mimetype, resultat, erreur, statut FROM depots WHERE id=$1', [req.params.id]);
   const d = rows[0];
-  if (!d) return res.redirect('/');
-  if (d.statut !== 'a_valider') return res.redirect(d.lot_id ? `/lot/${d.lot_id}?liste=1` : '/');
+  if (!d) return res.redirect('/operations');
+  if (d.statut !== 'a_valider') return res.redirect(d.lot_id ? `/lot/${d.lot_id}?liste=1` : '/operations');
   const r = d.resultat || {};
   const { entites, categories } = await refs();
   const ent = entites.find((e) => e.nom === r.societe_nom);
@@ -420,13 +419,26 @@ app.get('/depot/:id/fichier', requireAuth, async (req, res) => {
   res.send(rows[0].data);
 });
 
+// Après un ticket : le suivant du même dépôt, sinon on attend la suite de sa lecture,
+// sinon le dépôt suivant en attente, sinon retour aux opérations.
 async function prochainDepot(depotId) {
   const { rows } = await pool.query(
-    `SELECT d2.id, d1.lot_id FROM depots d1
+    `SELECT d2.id, d1.lot_id, l.statut FROM depots d1 JOIN lots l ON l.id = d1.lot_id
      LEFT JOIN depots d2 ON d2.lot_id = d1.lot_id AND d2.statut = 'a_valider'
      WHERE d1.id = $1 ORDER BY d2.page, d2.ordre LIMIT 1`, [depotId]);
-  if (!rows[0] || !rows[0].lot_id) return '/';
-  return rows[0].id ? `/depot/${rows[0].id}` : `/lot/${rows[0].lot_id}?liste=1`;
+  if (!rows[0]) return prochainLot();
+  if (rows[0].id) return `/depot/${rows[0].id}`;
+  if (rows[0].statut === 'en_cours') return `/lot/${rows[0].lot_id}`;
+  return prochainLot();
+}
+
+async function prochainLot() {
+  const { rows } = await pool.query(`
+    SELECT l.id FROM lots l
+    WHERE l.created_at > NOW() - INTERVAL '1 day' AND NOT EXISTS (SELECT 1 FROM releves r WHERE r.lot_id = l.id)
+      AND (l.statut = 'en_cours' OR EXISTS (SELECT 1 FROM depots d WHERE d.lot_id = l.id AND d.statut = 'a_valider'))
+    ORDER BY l.id LIMIT 1`);
+  return rows[0] ? `/lot/${rows[0].id}` : '/operations?fini=1';
 }
 
 app.post('/depot/:id/ignorer', requireAuth, async (req, res) => {
@@ -448,7 +460,16 @@ app.get('/operations', requireAuth, async (req, res) => {
   const { rows: annees } = await pool.query(
     'SELECT DISTINCT EXTRACT(YEAR FROM date_op)::int AS a FROM operations ORDER BY a DESC');
   const qs = new URLSearchParams(Object.entries(q).filter(([, v]) => v)).toString();
-  res.render('operations', { ops: rows, tot, q, qs, annees: annees.map((x) => x.a), ...(await refs()) });
+  // Dépôts pas encore validés (tickets lus en attente, lectures en cours).
+  const { rows: enAttente } = await pool.query(`
+    SELECT l.id, l.nom, l.statut, COUNT(d.id) FILTER (WHERE d.statut = 'a_valider')::int AS restants
+    FROM lots l LEFT JOIN depots d ON d.lot_id = l.id
+    WHERE NOT EXISTS (SELECT 1 FROM releves r WHERE r.lot_id = l.id)
+    GROUP BY l.id
+    HAVING (l.statut = 'en_cours' AND l.created_at > NOW() - INTERVAL '1 day') OR COUNT(d.id) FILTER (WHERE d.statut = 'a_valider') > 0
+    ORDER BY l.id`);
+  res.render('operations', { ops: rows, tot, q, qs, annees: annees.map((x) => x.a), enAttente,
+    iaActive: !!process.env.ANTHROPIC_API_KEY, ...(await refs()) });
 });
 
 app.get('/operations/new', requireAuth, async (req, res) => {

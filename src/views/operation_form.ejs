@@ -113,7 +113,7 @@
     <div class="wide actions">
       <button>Enregistrer</button>
       <% if (!op.id && !depot) { %><button name="encore" value="1" class="secondary">Enregistrer et saisir une autre</button><% } %>
-      <a href="<%= depot ? '/' : '/operations' %>">Annuler</a>
+      <a href="/operations">Annuler</a>
     </div>
   </form>
   <% if (op.id) { %>

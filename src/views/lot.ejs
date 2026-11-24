@@ -1,20 +1,28 @@
 <%- include('partials/header') %>
 <h1><%= lot.nom %></h1>
 <% if (lot.statut === 'en_cours') { %>
-  <div class="card">
-    <p><strong>Lecture en cours…</strong> <span id="prog"><%= lot.pages_traitees %> / <%= lot.total_pages || '?' %> page(s) lue(s)</span>, <span id="nb"><%= depots.length %></span> <%= lot.nature && lot.nature !== 'tickets' ? 'ligne(s) de relevé' : 'ticket(s)' %> trouvé(s).</p>
-    <div class="barre"><div id="barre" style="width: <%= lot.total_pages ? Math.round(100 * lot.pages_traitees / lot.total_pages) : 0 %>%"></div></div>
-    <% if (aValider.length) { %><p><a class="btn" href="/depot/<%= aValider[0].id %>">Commencer à valider sans attendre</a></p><% } %>
+  <div class="split">
+    <div class="card apercu">
+      <% if (lot.mimetype === 'application/pdf') { %><iframe src="/lot/<%= lot.id %>/fichier"></iframe>
+      <% } else { %><img src="/lot/<%= lot.id %>/fichier" alt="Document déposé"><% } %>
+    </div>
+    <div class="card">
+      <h1>Lecture en cours…</h1>
+      <p class="muted"><span id="prog"><%= lot.total_pages ? `${lot.pages_traitees} / ${lot.total_pages} page(s) lue(s)` : 'Analyse du document' %></span> — les informations s'afficheront ici dès qu'elles seront prêtes.</p>
+      <div class="barre"><div id="barre" style="width: <%= lot.total_pages ? Math.round(100 * lot.pages_traitees / lot.total_pages) : 5 %>%"></div></div>
+      <div class="squelette"><div></div><div></div><div></div><div></div><div></div><div></div></div>
+    </div>
   </div>
   <script>
     setInterval(async () => {
       const r = await fetch('/lot/<%= lot.id %>/etat.json').then((x) => x.json()).catch(() => null);
       if (!r) return;
-      if (r.statut !== 'en_cours') return location.reload();
-      document.getElementById('prog').textContent = `${r.faites} / ${r.total || '?'} page(s) lue(s)`;
-      document.getElementById('nb').textContent = r.tickets;
-      if (r.total) document.getElementById('barre').style.width = Math.round(100 * r.faites / r.total) + '%';
-    }, 2500);
+      if (r.a_valider > 0 || r.statut !== 'en_cours') return location.replace('/lot/<%= lot.id %>');
+      if (r.total) {
+        document.getElementById('prog').textContent = `${r.faites} / ${r.total} page(s) lue(s)`;
+        document.getElementById('barre').style.width = Math.max(5, Math.round(100 * r.faites / r.total)) + '%';
+      }
+    }, 1500);
   </script>
 <% } else if (lot.statut === 'erreur') { %>
   <div class="flash err">Le traitement a échoué : <%= lot.erreur %></div>
@@ -31,7 +39,8 @@
   <% if (relevesLot.every(r => r.nb_lignes === 0) && relevesLot.some(r => r.nb_doublons > 0)) { %>
     <div class="flash err"><strong>Ce relevé était déjà mis</strong> : toutes ses lignes avaient déjà été importées. Rien n'a été ajouté.</div>
   <% } %>
-  <p><a class="btn" href="/rapprochement?compte=<%= releve.compte_id %>">Voir le rapprochement →</a></p>
+  <p><a class="btn" href="/rapprochement?compte=<%= releve.compte_id %>" target="_top">Voir le rapprochement →</a>
+     <a class="btn secondary" href="/operations">Fermer</a></p>
 <% } else { %>
   <div class="flash"><%= depots.length %> ticket(s) trouvé(s) sur <%= lot.total_pages %> page(s). <%= aValider.length ? aValider.length + ' à valider.' : 'Tout est traité.' %></div>
   <% if (aValider.length) { %><p><a class="btn" href="/depot/<%= aValider[0].id %>">Valider les tickets un par un →</a></p><% } %>

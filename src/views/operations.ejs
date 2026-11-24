@@ -1,4 +1,32 @@
 <%- include('partials/header') %>
+<% if (!iaActive) { %>
+  <div class="flash err">La lecture automatique n'est pas activée (clé API Claude à configurer) : les champs seront à remplir à la main.</div>
+<% } %>
+<form id="fdepot" method="post" action="/depot" enctype="multipart/form-data">
+  <label class="drop compacte" id="zone">
+    <strong>📄 Glissez ici un ou plusieurs fichiers — factures, tickets, scans, relevés CIC / AMEX</strong>
+    <span class="muted">ou cliquez pour choisir des fichiers / prendre une photo</span>
+    <input type="file" name="fichier" id="fichier" accept="application/pdf,image/*" multiple hidden>
+  </label>
+</form>
+<div id="msgDepot"></div>
+<% if (enAttente.length) { %>
+  <div class="attente">
+    <% enAttente.forEach(l => { %>
+      <span><%= l.nom %> — <%= l.restants ? l.restants + ' ticket(s) à valider' : 'lecture en cours…' %>
+        <button type="button" class="link" onclick="ouvrir('/lot/<%= l.id %>')">ouvrir</button></span>
+    <% }) %>
+  </div>
+<% } %>
+
+<div id="modale" hidden>
+  <div class="modale-fond" onclick="fermer()"></div>
+  <div class="modale-boite">
+    <button type="button" class="modale-x" onclick="fermer()" title="Fermer">×</button>
+    <iframe id="cadre" title="Dépôt"></iframe>
+  </div>
+</div>
+
 <div class="head">
   <h1>Opérations</h1>
   <div>
@@ -64,4 +92,43 @@
   <% if (!ops.length) { %><tr><td colspan="10" class="muted center">Aucune opération.</td></tr><% } %>
   </tbody>
 </table>
+<script>
+  const modale = document.getElementById('modale'), cadre = document.getElementById('cadre');
+  function ouvrir(url) {
+    cadre.src = url; modale.hidden = false; document.body.style.overflow = 'hidden';
+  }
+  function fermer() { modale.hidden = true; cadre.src = 'about:blank'; location.href = '/operations'; }
+  // Quand la fenêtre revient sur la liste des opérations, le travail est fini : on la ferme.
+  cadre.addEventListener('load', () => {
+    try { if (cadre.contentWindow.location.pathname === '/operations') fermer(); } catch (e) {}
+  });
+
+  const zone = document.getElementById('zone'), input = document.getElementById('fichier');
+  async function envoyer(files) {
+    if (!files.length) return;
+    const fd = new FormData();
+    for (const f of files) fd.append('fichier', f);
+    zone.classList.add('busy');
+    zone.querySelector('strong').textContent = `Envoi de ${files.length} fichier(s)…`;
+    // La fenêtre s'ouvre tout de suite ; elle affichera les données dès qu'elles seront lues.
+    ouvrir('about:blank');
+    cadre.srcdoc = '<p style="font:14px sans-serif;padding:24px;color:#6b7385">Envoi du document…</p>';
+    try {
+      const r = await fetch('/depot', { method: 'POST', body: fd, headers: { Accept: 'application/json' } }).then((x) => x.json());
+      cadre.removeAttribute('srcdoc');
+      if (r.message) document.getElementById('msgDepot').innerHTML = '<div class="flash err"></div>', document.querySelector('#msgDepot .flash').textContent = r.message;
+      if (r.lots && r.lots.length) cadre.src = '/lot/' + r.lots[0];
+      else { modale.hidden = true; document.body.style.overflow = ''; }
+    } catch (e) {
+      cadre.srcdoc = '<p style="font:14px sans-serif;padding:24px;color:#b42318">Échec de l\'envoi. Réessayez.</p>';
+    }
+    zone.classList.remove('busy');
+    zone.querySelector('strong').textContent = '📄 Glissez ici un ou plusieurs fichiers — factures, tickets, scans, relevés CIC / AMEX';
+    input.value = '';
+  }
+  input.addEventListener('change', () => envoyer(input.files));
+  ['dragenter', 'dragover'].forEach((e) => zone.addEventListener(e, (ev) => { ev.preventDefault(); zone.classList.add('over'); }));
+  ['dragleave', 'drop'].forEach((e) => zone.addEventListener(e, (ev) => { ev.preventDefault(); zone.classList.remove('over'); }));
+  zone.addEventListener('drop', (ev) => envoyer(ev.dataTransfer.files));
+</script>
 <%- include('partials/footer') %>

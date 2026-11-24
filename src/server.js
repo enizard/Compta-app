@@ -281,8 +281,15 @@ async function creerOperationsAuto(lotId) {
   for (const d of deps) {
     const r = d.resultat || {};
     if (!r.montant_ttc || !r.date) continue;
-    const { rows: dbl } = await pool.query('SELECT 1 FROM operations WHERE montant_ttc=$1 AND date_op=$2 LIMIT 1', [r.montant_ttc, r.date]);
-    if (dbl[0]) continue;
+    const { rows: dbl } = await pool.query(`
+      SELECT EXISTS (SELECT 1 FROM depots d2 JOIN emails_recus m ON d2.lot_id = ANY(m.lot_ids) AND $3 = ANY(m.lot_ids)
+                     WHERE d2.operation_id = o.id) AS meme_email
+      FROM operations o WHERE o.montant_ttc=$1 AND o.date_op=$2 LIMIT 1`, [r.montant_ttc, r.date, lotId]);
+    if (dbl[0]) {
+      // Facture + reçu du même paiement dans le même e-mail : le second document est simplement ignoré.
+      if (dbl[0].meme_email) await pool.query("UPDATE depots SET statut='ignore' WHERE id=$1", [d.id]);
+      continue;
+    }
     const ent = entites.find((e) => e.nom === r.societe_nom);
     const cat = categories.find((c) => c.nom === r.categorie);
     const { rows: ins } = await pool.query(
@@ -301,11 +308,13 @@ async function creerOperationsAuto(lotId) {
     fournisseurs.mettreAJour();
   }
   // Statut de l'e-mail d'origine.
-  const { rows: reste } = await pool.query(
-    "SELECT COUNT(*) FILTER (WHERE statut='a_valider')::int AS n, COUNT(*)::int AS total FROM depots WHERE lot_id=$1", [lotId]);
-  // Aucune facture trouvée dans l'e-mail : on le marque comme tel (et on ne garde pas de dépôt vide).
-  await pool.query(`UPDATE emails_recus SET statut = CASE WHEN $3 = 0 THEN 'pas_facture' WHEN $2 > 0 THEN 'a_valider' ELSE 'traite' END
-    WHERE $1 = ANY(lot_ids) AND statut IN ('en_cours','a_valider','traite')`, [lotId, reste[0].n, reste[0].total]);
+  // Statut de l'e-mail d'origine, sur l'ensemble de ses pièces jointes.
+  await pool.query(`UPDATE emails_recus m SET statut = CASE
+      WHEN EXISTS (SELECT 1 FROM lots l WHERE l.id = ANY(m.lot_ids) AND l.statut = 'en_cours') THEN 'en_cours'
+      WHEN EXISTS (SELECT 1 FROM depots d WHERE d.lot_id = ANY(m.lot_ids) AND d.statut = 'a_valider') THEN 'a_valider'
+      WHEN EXISTS (SELECT 1 FROM depots d WHERE d.lot_id = ANY(m.lot_ids) AND d.statut = 'enregistre') THEN 'traite'
+      ELSE 'pas_facture' END
+    WHERE $1 = ANY(m.lot_ids) AND m.statut IN ('en_cours','a_valider','traite','pas_facture')`, [lotId]);
 }
 
 app.post('/depot', requireAuth, upload.array('fichier', 50), async (req, res) => {

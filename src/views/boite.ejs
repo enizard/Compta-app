@@ -1,0 +1,47 @@
+<%- include('partials/header') %>
+<% const STATUT = { traite: ['Enregistrée automatiquement', 'pos'], a_valider: ['À valider (doublon possible ou lecture incomplète)', 'neg'], en_cours: ['Lecture en cours…', 'muted'], deja_mis: ['Déjà reçue — ignorée', 'muted'], confirmation: ['Confirmation de transfert Gmail', ''] }; %>
+<div class="head">
+  <h1>Boîte factures</h1>
+  <% if (active) { %><form method="post" action="/boite/relever" class="inline"><button class="secondary">Relever maintenant</button></form><% } %>
+</div>
+
+<% if (!active) { %>
+  <div class="card">
+    <strong>Pas encore configurée.</strong> Le logiciel relèvera automatiquement une boîte e-mail dédiée aux factures dès que
+    <code>FACTURES_IMAP_USER</code> (l'adresse) et <code>FACTURES_IMAP_PASSWORD</code> (mot de passe d'application) seront renseignés dans les paramètres Heroku.
+  </div>
+<% } else { %>
+  <p class="muted">Adresse relevée : <strong><%= etat.adresse %></strong> — toutes les 10 minutes.
+    <% if (etat.quand) { %>Dernière relève : <%= etat.quand.toLocaleString('fr-FR', { timeZone: 'Europe/Paris' }) %><% } %>
+    <% if (etat.erreur) { %> — <span class="neg">erreur : <%= etat.erreur %></span><% } %></p>
+  <p class="muted">Transférez-y automatiquement les e-mails de factures (filtres Gmail) : chaque facture est lue et l'opération créée sans intervention ; la société et le moyen de paiement sont déterminés au rapprochement bancaire.</p>
+<% } %>
+
+<% const confs = mails.filter(m => m.statut === 'confirmation'); %>
+<% if (confs.length) { %>
+  <div class="card">
+    <h3>Confirmations de transfert Gmail</h3>
+    <% confs.forEach(m => { %>
+      <p><strong><%= m.sujet %></strong><br>
+        <% if (m.info && m.info.code) { %>Code de confirmation : <strong class="code"><%= m.info.code %></strong><% } %>
+        <% if (m.info && m.info.lien) { %> — <a href="<%= m.info.lien %>" target="_blank" rel="noopener">ou cliquer ici pour confirmer</a><% } %></p>
+    <% }) %>
+  </div>
+<% } %>
+
+<table>
+  <thead><tr><th>Reçu le</th><th>De</th><th>Objet</th><th>État</th><th>Opération(s)</th></tr></thead>
+  <tbody>
+  <% mails.filter(m => m.statut !== 'confirmation').forEach(m => { const st = STATUT[m.statut] || [m.statut, '']; %>
+    <tr>
+      <td><%= m.recu_le ? m.recu_le.toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short', timeZone: 'Europe/Paris' }) : '' %></td>
+      <td><small><%= m.de %></small></td>
+      <td><%= m.sujet %><% if (!m.nb_pj) { %> <small class="muted">(contenu de l'e-mail)</small><% } %></td>
+      <td class="<%= st[1] %>"><%= st[0] %><% if (m.a_valider) { %> — <a href="/depot/<%= m.a_valider %>">valider</a><% } %></td>
+      <td><% (m.ops || []).forEach(o => { %><a href="/operations/<%= o.id %>/edit"><%= o.tiers || o.libelle %> — <%= fmt(o.montant) %> €</a><br><% }) %></td>
+    </tr>
+  <% }) %>
+  <% if (!mails.filter(m => m.statut !== 'confirmation').length) { %><tr><td colspan="5" class="muted center">Aucun e-mail reçu pour l'instant.</td></tr><% } %>
+  </tbody>
+</table>
+<%- include('partials/footer') %>

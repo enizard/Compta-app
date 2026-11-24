@@ -87,3 +87,4 @@ html.embed nav.top { display: none; }
 html.embed main { max-width: none; padding: 16px 20px; }
 .squelette div { height: 34px; margin: 10px 0; border-radius: 6px; background: linear-gradient(90deg, #eef0f3 25%, #f7f8fa 50%, #eef0f3 75%); background-size: 200% 100%; animation: sq 1.2s infinite; }
 @keyframes sq { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+.code { font-size: 18px; letter-spacing: 1px; background: #eef3ff; padding: 2px 8px; border-radius: 4px; }

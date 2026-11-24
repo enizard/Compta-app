@@ -11,6 +11,7 @@ const REGLEMENTS = ['À régler', 'Partiellement réglé', 'Déjà réglé'];
 const { analyser, classer, extraireLignes, decouperPdf, PAIEMENTS } = require('./analyse');
 const releves = require('./releves');
 const fournisseurs = require('./fournisseurs');
+const boite = require('./boite');
 
 const app = express();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
@@ -264,7 +265,45 @@ async function traiterLot(lotId, fichier, userId) {
 let fileAttente = Promise.resolve();
 function mettreEnFile(lotId, f, userId) {
   fileAttente = fileAttente.then(() => traiterLot(lotId, f, userId)).catch((e) => console.error('File :', e))
+    .then(() => creerOperationsAuto(lotId)).catch((e) => console.error('Auto :', e))
     .then(() => pool.query('UPDATE lots SET data=NULL WHERE id=$1', [lotId]).catch(() => {}));
+}
+
+// Factures reçues par e-mail : l'opération est créée sans validation. Société et paiement inconnus
+// sont déterminés au rapprochement bancaire. Les doublons probables restent à valider.
+async function creerOperationsAuto(lotId) {
+  const { rows: l } = await pool.query('SELECT auto, info, created_by FROM lots WHERE id=$1', [lotId]);
+  if (!l[0] || !l[0].auto) return;
+  const { entites, categories } = await refs();
+  const { rows: deps } = await pool.query(
+    "SELECT id, nom, mimetype, data, resultat FROM depots WHERE lot_id=$1 AND statut='a_valider' AND erreur IS NULL ORDER BY page, ordre", [lotId]);
+  let crees = 0;
+  for (const d of deps) {
+    const r = d.resultat || {};
+    if (!r.montant_ttc || !r.date) continue;
+    const { rows: dbl } = await pool.query('SELECT 1 FROM operations WHERE montant_ttc=$1 AND date_op=$2 LIMIT 1', [r.montant_ttc, r.date]);
+    if (dbl[0]) continue;
+    const ent = entites.find((e) => e.nom === r.societe_nom);
+    const cat = categories.find((c) => c.nom === r.categorie);
+    const { rows: ins } = await pool.query(
+      `INSERT INTO operations (entite_id, date_op, type, categorie_id, libelle, tiers, montant_ttc, tva, notes, paiement, carte,
+         justif_nom, justif_type, justif_data, created_by)
+       VALUES ($1,$2,'depense',$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING id`,
+      [ent ? ent.id : null, r.date, cat ? cat.id : null, r.libelle || `Facture ${r.fournisseur || ''}`.trim(), r.fournisseur || null,
+        r.montant_ttc, r.tva || 0, l[0].info, PAIEMENTS.includes(r.paiement) ? r.paiement : null, r.carte || null,
+        d.nom, d.mimetype, d.data, l[0].created_by]);
+    await fournisseurs.lierOperation(ins[0].id, r.fournisseur);
+    await pool.query("UPDATE depots SET statut='enregistre', operation_id=$2 WHERE id=$1", [d.id, ins[0].id]);
+    crees++;
+  }
+  if (crees) {
+    await releves.rapprocher();
+    fournisseurs.mettreAJour();
+  }
+  // Statut de l'e-mail d'origine.
+  const { rows: reste } = await pool.query("SELECT COUNT(*)::int AS n FROM depots WHERE lot_id=$1 AND statut='a_valider'", [lotId]);
+  await pool.query(`UPDATE emails_recus SET statut = CASE WHEN $2 > 0 THEN 'a_valider' ELSE 'traite' END
+    WHERE $1 = ANY(lot_ids) AND statut IN ('en_cours','a_valider','traite')`, [lotId, reste[0].n]);
 }
 
 app.post('/depot', requireAuth, upload.array('fichier', 50), async (req, res) => {
@@ -436,7 +475,7 @@ async function prochainLot() {
   const { rows } = await pool.query(`
     SELECT l.id FROM lots l
     WHERE l.created_at > NOW() - INTERVAL '1 day' AND NOT EXISTS (SELECT 1 FROM releves r WHERE r.lot_id = l.id)
-      AND (l.statut = 'en_cours' OR EXISTS (SELECT 1 FROM depots d WHERE d.lot_id = l.id AND d.statut = 'a_valider'))
+      AND ((l.statut = 'en_cours' AND NOT l.auto) OR EXISTS (SELECT 1 FROM depots d WHERE d.lot_id = l.id AND d.statut = 'a_valider'))
     ORDER BY l.id LIMIT 1`);
   return rows[0] ? `/lot/${rows[0].id}` : '/operations?fini=1';
 }
@@ -466,7 +505,7 @@ app.get('/operations', requireAuth, async (req, res) => {
     FROM lots l LEFT JOIN depots d ON d.lot_id = l.id
     WHERE NOT EXISTS (SELECT 1 FROM releves r WHERE r.lot_id = l.id)
     GROUP BY l.id
-    HAVING (l.statut = 'en_cours' AND l.created_at > NOW() - INTERVAL '1 day') OR COUNT(d.id) FILTER (WHERE d.statut = 'a_valider') > 0
+    HAVING (l.statut = 'en_cours' AND NOT l.auto AND l.created_at > NOW() - INTERVAL '1 day') OR COUNT(d.id) FILTER (WHERE d.statut = 'a_valider') > 0
     ORDER BY l.id`);
   res.render('operations', { ops: rows, tot, q, qs, annees: annees.map((x) => x.a), enAttente,
     iaActive: !!process.env.ANTHROPIC_API_KEY, ...(await refs()) });
@@ -563,7 +602,7 @@ app.post('/operations', requireAuth, upload.single('justificatif'), async (req, 
     return res.redirect(`/rapprochement?compte=${rows[0] ? rows[0].compte_id : ''}`);
   }
   if (depotId) {
-    await pool.query("UPDATE depots SET statut='enregistre' WHERE id=$1", [depotId]);
+    await pool.query("UPDATE depots SET statut='enregistre', operation_id=$2 WHERE id=$1", [depotId, opId]);
     return res.redirect(await prochainDepot(depotId));
   }
   res.redirect(req.body.encore ? `/operations/new?entite=${v[0]}` : '/operations');
@@ -841,6 +880,24 @@ app.post('/fournisseurs/:id', requireAuth, async (req, res) => {
   res.redirect('/fournisseurs');
 });
 
+// ---------- boîte factures (e-mails) ----------
+app.get('/boite', requireAuth, async (req, res) => {
+  const { rows: mails } = await pool.query(`
+    SELECT m.*,
+      (SELECT json_agg(json_build_object('id', o.id, 'tiers', o.tiers, 'libelle', o.libelle, 'montant', o.montant_ttc))
+         FROM depots d JOIN operations o ON o.id = d.operation_id
+         WHERE d.lot_id = ANY(m.lot_ids)) AS ops,
+      (SELECT MIN(d.id) FROM depots d WHERE d.lot_id = ANY(m.lot_ids) AND d.statut = 'a_valider') AS a_valider
+    FROM emails_recus m ORDER BY m.recu_le DESC NULLS LAST, m.id DESC LIMIT 200`);
+  res.render('boite', { mails, etat: boite.etat(), active: boite.active() });
+});
+
+app.post('/boite/relever', requireAuth, async (req, res) => {
+  const r = await boite.relever({ mettreEnFile });
+  flash(req, r.erreur ? `Connexion à la boîte impossible : ${r.erreur}` : `${r.nouveaux} nouvel(s) e-mail(s) relevé(s).`, r.erreur ? 'err' : 'ok');
+  res.redirect('/boite');
+});
+
 // ---------- export CSV (pour l'expert-comptable) ----------
 app.get('/export.csv', requireAuth, async (req, res) => {
   const { sql, params } = buildFilters(req.query);
@@ -948,6 +1005,8 @@ app.post('/compte/password', requireAuth, async (req, res) => {
   res.redirect('/compte');
 });
 app.get('/compte', requireAuth, (req, res) => res.render('compte'));
+
+boite.demarrer({ mettreEnFile });
 
 app.use((err, req, res, next) => {
   console.error(err);

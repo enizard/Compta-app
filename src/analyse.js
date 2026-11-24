@@ -38,7 +38,17 @@ Règles pour les mentions MANUSCRITES (écrites au stylo sur le ticket) :
 Montants : nombres décimaux avec un point (ex. 12.5). Si HT ou TVA manquent mais que l'autre et le TTC sont connus, calcule-les.`;
 }
 
+function htmlEnTexte(html) {
+  return html.replace(/<(style|script|head)[\s\S]*?<\/\1>/gi, ' ').replace(/<br\s*\/?>|<\/(p|div|tr|li|h\d)>/gi, '\n')
+    .replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+    .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(n)).replace(/[ \t]+/g, ' ').replace(/\n\s*\n+/g, '\n').trim();
+}
+
 async function toContentBlock(buffer, mimetype) {
+  if (/^text\//.test(mimetype)) {
+    const texte = mimetype === 'text/html' ? htmlEnTexte(buffer.toString('utf8')) : buffer.toString('utf8');
+    return { type: 'document', source: { type: 'text', media_type: 'text/plain', data: texte.slice(0, 100000) } };
+  }
   if (mimetype === 'application/pdf') {
     return { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: buffer.toString('base64') } };
   }

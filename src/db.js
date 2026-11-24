@@ -77,6 +77,22 @@ async function init() {
     ALTER TABLE lots ADD COLUMN IF NOT EXISTS hash TEXT;
     ALTER TABLE lots ADD COLUMN IF NOT EXISTS data BYTEA;
     ALTER TABLE lots ADD COLUMN IF NOT EXISTS mimetype TEXT;
+    ALTER TABLE lots ADD COLUMN IF NOT EXISTS source TEXT;
+    ALTER TABLE lots ADD COLUMN IF NOT EXISTS auto BOOLEAN NOT NULL DEFAULT FALSE;
+    ALTER TABLE lots ADD COLUMN IF NOT EXISTS info TEXT;
+    ALTER TABLE depots ADD COLUMN IF NOT EXISTS operation_id INTEGER REFERENCES operations(id) ON DELETE SET NULL;
+    CREATE TABLE IF NOT EXISTS emails_recus (
+      id SERIAL PRIMARY KEY,
+      message_id TEXT UNIQUE NOT NULL,
+      de TEXT,
+      sujet TEXT,
+      recu_le TIMESTAMPTZ,
+      statut TEXT NOT NULL,
+      nb_pj INTEGER NOT NULL DEFAULT 0,
+      lot_ids INTEGER[] NOT NULL DEFAULT '{}',
+      info JSONB,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
     CREATE INDEX IF NOT EXISTS idx_lots_hash ON lots(hash);
     CREATE TABLE IF NOT EXISTS comptes (
       id SERIAL PRIMARY KEY,

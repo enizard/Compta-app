@@ -100,7 +100,7 @@ function buildFilters(q) {
 
 const OPS_SELECT = `
   SELECT o.id, o.date_op, o.type, o.libelle, o.tiers, o.montant_ttc, o.tva, o.notes,
-         o.justif_nom, o.entite_id, o.categorie_id, o.paiement, o.carte, o.livraison, o.reglement,
+         o.justif_nom, o.entite_id, o.categorie_id, o.paiement, o.carte, o.livraison, o.reglement, o.montant_debite,
          e.nom AS entite, c.nom AS categorie, u.nom AS auteur,
          EXISTS (SELECT 1 FROM lignes x WHERE x.operation_id = o.id) AS rapprochee
   FROM operations o
@@ -288,15 +288,22 @@ async function creerOperationsAuto(lotId) {
     const r = d.resultat || {};
     if (!r.montant_ttc || !r.date) continue;
     // Un reçu accompagné de sa facture dans le même e-mail : on ne garde que la facture.
-    if (r.type_document === 'recu' && frere.some((f) => f.resultat && f.resultat.type_document === 'facture' && memeFourn(f.resultat, r))) {
+    const facture = r.type_document === 'recu' && frere.find((f) => f.resultat && f.resultat.type_document === 'facture' && memeFourn(f.resultat, r));
+    if (facture) {
       await pool.query("UPDATE depots SET statut='ignore' WHERE id=$1", [d.id]);
+      // Montant réellement débité (après crédit) : utile au rapprochement bancaire.
+      const paye = r.montant_paye || r.montant_ttc;
+      if (facture.operation_id && paye) {
+        await pool.query('UPDATE operations SET montant_debite=$1 WHERE id=$2 AND ABS(montant_ttc - $1) > 0.01', [paye, facture.operation_id]);
+      }
       continue;
     }
     if (r.type_document === 'facture') {
       const recu = frere.find((f) => f.operation_id && f.resultat && f.resultat.type_document === 'recu' && memeFourn(f.resultat, r));
       if (recu) {
         // Le reçu a été enregistré avant la facture : l'opération reprend les données et le justificatif de la facture.
-        await pool.query(`UPDATE operations SET montant_ttc=$1, tva=$2, date_op=$3, justif_nom=$4, justif_type=$5, justif_data=$6, updated_at=NOW()
+        await pool.query(`UPDATE operations SET montant_debite = CASE WHEN ABS(montant_ttc - $1) > 0.01 THEN montant_ttc ELSE montant_debite END,
+          montant_ttc=$1, tva=$2, date_op=$3, justif_nom=$4, justif_type=$5, justif_data=$6, updated_at=NOW()
           WHERE id=$7`, [r.montant_ttc, r.tva || 0, r.date, d.nom, d.mimetype, d.data, recu.operation_id]);
         await pool.query("UPDATE depots SET statut='ignore', operation_id=NULL WHERE id=$1", [recu.id]);
         await pool.query("UPDATE depots SET statut='enregistre', operation_id=$2 WHERE id=$1", [d.id, recu.operation_id]);
@@ -317,13 +324,14 @@ async function creerOperationsAuto(lotId) {
     const cat = categories.find((c) => c.nom === r.categorie);
     const { rows: ins } = await pool.query(
       `INSERT INTO operations (entite_id, date_op, type, categorie_id, libelle, tiers, montant_ttc, tva, notes, paiement, carte,
-         justif_nom, justif_type, justif_data, created_by)
-       VALUES ($1,$2,'depense',$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING id`,
+         justif_nom, justif_type, justif_data, created_by, montant_debite)
+       VALUES ($1,$2,'depense',$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING id`,
       [ent ? ent.id : null, r.date, cat ? cat.id : null, r.libelle || `Facture ${r.fournisseur || ''}`.trim(), r.fournisseur || null,
         r.montant_ttc, r.tva || 0,
         l[0].info + (r.montant_paye && Math.abs(r.montant_paye - r.montant_ttc) > 0.01 ? ` — montant débité : ${r.montant_paye} € (crédit ou avoir appliqué)` : ''),
         PAIEMENTS.includes(r.paiement) ? r.paiement : null, r.carte || null,
-        d.nom, d.mimetype, d.data, l[0].created_by]);
+        d.nom, d.mimetype, d.data, l[0].created_by,
+        r.montant_paye && Math.abs(r.montant_paye - r.montant_ttc) > 0.01 ? r.montant_paye : null]);
     await fournisseurs.lierOperation(ins[0].id, r.fournisseur);
     await pool.query("UPDATE depots SET statut='enregistre', operation_id=$2 WHERE id=$1", [d.id, ins[0].id]);
     crees++;
@@ -596,6 +604,7 @@ function opValues(b) {
     PAIEMENTS.includes(b.paiement) ? b.paiement : null, (b.carte || '').trim() || null,
     LIVRAISONS.includes(b.livraison) ? b.livraison : null,
     REGLEMENTS.includes(b.reglement) ? b.reglement : null,
+    b.montant_debite ? toNum(b.montant_debite) : null,
   ];
 }
 
@@ -617,8 +626,8 @@ app.post('/operations', requireAuth, upload.single('justificatif'), async (req, 
   }
   const { rows: ins } = await pool.query(
     `INSERT INTO operations (entite_id, date_op, type, categorie_id, libelle, tiers, montant_ttc, tva, notes,
-       paiement, carte, livraison, reglement, justif_nom, justif_type, justif_data, created_by)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) RETURNING id`,
+       paiement, carte, livraison, reglement, montant_debite, justif_nom, justif_type, justif_data, created_by)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18) RETURNING id`,
     [...v, f ? f.nom : null, f ? f.type : null, f ? f.data : null, req.session.user.id]);
   const opId = ins[0].id;
   await fournisseurs.lierOperation(opId, v[5]);
@@ -659,7 +668,7 @@ app.post('/operations/:id', requireAuth, upload.single('justificatif'), async (r
   if (!validOp(v)) { flash(req, 'Champs obligatoires manquants ou montant invalide.', 'err'); return res.redirect(`/operations/${req.params.id}/edit`); }
   await pool.query(
     `UPDATE operations SET entite_id=$1, date_op=$2, type=$3, categorie_id=$4, libelle=$5, tiers=$6,
-       montant_ttc=$7, tva=$8, notes=$9, paiement=$10, carte=$11, livraison=$12, reglement=$13, updated_at=NOW() WHERE id=$14`, [...v, req.params.id]);
+       montant_ttc=$7, tva=$8, notes=$9, paiement=$10, carte=$11, livraison=$12, reglement=$13, montant_debite=$14, updated_at=NOW() WHERE id=$15`, [...v, req.params.id]);
   if (v[5]) await fournisseurs.lierOperation(req.params.id, v[5]);
   await enregistrerReglements(req.params.id, req.body, v[6]);
   if (req.file) {

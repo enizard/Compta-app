@@ -141,7 +141,8 @@ async function candidats(l, jours, strict = true) {
     SELECT o.id, o.date_op, o.libelle, o.tiers, o.montant_ttc, o.entite_id, o.paiement, e.nom AS entite,
       ABS(o.date_op - $3::date) AS ecart
     FROM operations o LEFT JOIN entites e ON e.id = o.entite_id
-    WHERE o.type = $1 AND ABS(o.montant_ttc - ABS($2::numeric)) < 0.01
+    WHERE o.type = $1 AND (ABS(o.montant_ttc - ABS($2::numeric)) < 0.01
+      OR ABS(COALESCE(o.montant_debite, -1) - ABS($2::numeric)) < 0.01)
       AND ABS(o.date_op - $3::date) <= $4
       AND ($5::int IS NULL OR TRUE)
       AND NOT EXISTS (SELECT 1 FROM lignes x WHERE x.operation_id = o.id)

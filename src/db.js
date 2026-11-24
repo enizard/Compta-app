@@ -150,6 +150,7 @@ async function init() {
     ALTER TABLE operations ALTER COLUMN entite_id DROP NOT NULL;
     ALTER TABLE operations ADD COLUMN IF NOT EXISTS livraison TEXT;
     ALTER TABLE operations ADD COLUMN IF NOT EXISTS reglement TEXT;
+    ALTER TABLE operations ADD COLUMN IF NOT EXISTS montant_debite NUMERIC(12,2);
     ALTER TABLE lignes ADD COLUMN IF NOT EXISTS ecart_accepte BOOLEAN NOT NULL DEFAULT FALSE;
     ALTER TABLE operations ADD COLUMN IF NOT EXISTS fournisseur_id INTEGER REFERENCES fournisseurs(id) ON DELETE SET NULL;
     CREATE TABLE IF NOT EXISTS reglements (

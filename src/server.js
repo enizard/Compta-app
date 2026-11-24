@@ -296,6 +296,11 @@ async function creerOperationsAuto(lotId) {
       if (facture.operation_id && paye) {
         await pool.query('UPDATE operations SET montant_debite=$1 WHERE id=$2 AND ABS(montant_ttc - $1) > 0.01', [paye, facture.operation_id]);
       }
+      // Le moyen de paiement n'est souvent indiqué que sur le reçu : on le reporte sur la facture.
+      if (facture.operation_id) {
+        await pool.query('UPDATE operations SET paiement = COALESCE(paiement, $1), carte = COALESCE(carte, $2) WHERE id=$3',
+          [await releves.paiementDepuisDocument(r), r.carte || null, facture.operation_id]);
+      }
       continue;
     }
     if (r.type_document === 'facture') {
@@ -329,7 +334,7 @@ async function creerOperationsAuto(lotId) {
       [ent ? ent.id : null, r.date, cat ? cat.id : null, r.libelle || `Facture ${r.fournisseur || ''}`.trim(), r.fournisseur || null,
         r.montant_ttc, r.tva || 0,
         l[0].info + (r.montant_paye && Math.abs(r.montant_paye - r.montant_ttc) > 0.01 ? ` — montant débité : ${r.montant_paye} € (crédit ou avoir appliqué)` : ''),
-        PAIEMENTS.includes(r.paiement) ? r.paiement : null, r.carte || null,
+        await releves.paiementDepuisDocument(r), r.carte || null,
         d.nom, d.mimetype, d.data, l[0].created_by,
         r.montant_paye && Math.abs(r.montant_paye - r.montant_ttc) > 0.01 ? r.montant_paye : null]);
     await fournisseurs.lierOperation(ins[0].id, r.fournisseur);
@@ -471,7 +476,7 @@ app.get('/depot/:id', requireAuth, async (req, res) => {
     tiers: r.fournisseur || '',
     montant_ttc: r.montant_ttc,
     tva: r.tva,
-    paiement: r.paiement || '',
+    paiement: (await releves.paiementDepuisDocument(r)) || '',
     carte: r.carte || '',
     notes: r.mentions_manuscrites ? `Manuscrit : ${r.mentions_manuscrites}` : '',
   };
@@ -596,6 +601,14 @@ async function enregistrerReglements(opId, b, montantTtc) {
   await pool.query('UPDATE operations SET reglement=$1 WHERE id=$2', [statut, opId]);
 }
 
+// Carte saisie avec son moyen de paiement (« •••• 1001 » + AMEX) : retenue pour les prochains documents.
+async function apprendreCarte(carte, paiement) {
+  const m = carte && String(carte).match(/(\d{4})\D*$/);
+  if (!m || !['CB CIC', 'AMEX'].includes(paiement)) return;
+  await pool.query('INSERT INTO cartes (numero, paiement) VALUES ($1,$2) ON CONFLICT (numero) DO UPDATE SET paiement=EXCLUDED.paiement', [m[1], paiement]);
+  await releves.appliquerCartes();
+}
+
 function opValues(b) {
   return [
     b.entite_id === 'inconnue' ? null : Number(b.entite_id), b.date_op, b.type === 'recette' ? 'recette' : 'depense',
@@ -631,6 +644,7 @@ app.post('/operations', requireAuth, upload.single('justificatif'), async (req, 
     [...v, f ? f.nom : null, f ? f.type : null, f ? f.data : null, req.session.user.id]);
   const opId = ins[0].id;
   await fournisseurs.lierOperation(opId, v[5]);
+  await apprendreCarte(v[10], v[9]);
   await enregistrerReglements(opId, req.body, v[6]);
   if (req.body.ligne_id) {
     await pool.query('UPDATE lignes SET operation_id=$1 WHERE id=$2 AND operation_id IS NULL',
@@ -670,6 +684,7 @@ app.post('/operations/:id', requireAuth, upload.single('justificatif'), async (r
     `UPDATE operations SET entite_id=$1, date_op=$2, type=$3, categorie_id=$4, libelle=$5, tiers=$6,
        montant_ttc=$7, tva=$8, notes=$9, paiement=$10, carte=$11, livraison=$12, reglement=$13, montant_debite=$14, updated_at=NOW() WHERE id=$15`, [...v, req.params.id]);
   if (v[5]) await fournisseurs.lierOperation(req.params.id, v[5]);
+  await apprendreCarte(v[10], v[9]);
   await enregistrerReglements(req.params.id, req.body, v[6]);
   if (req.file) {
     await pool.query('UPDATE operations SET justif_nom=$1, justif_type=$2, justif_data=$3 WHERE id=$4',

@@ -101,6 +101,32 @@ async function attribuerSocietes() {
       ELSE 'Virement / prélèvement CIC' END
     FROM lignes l JOIN comptes c ON c.id = l.compte_id
     WHERE l.operation_id = o.id AND o.paiement IS NULL`);
+  // Apprentissage des cartes : une opération payée avec « •••• 1001 » rapprochée sur le relevé AMEX → 1001 = AMEX.
+  await pool.query(`INSERT INTO cartes (numero, paiement)
+    SELECT DISTINCT ON (substring(o.carte from '(\\d{4})\\D*$')) substring(o.carte from '(\\d{4})\\D*$'),
+      CASE WHEN c.banque = 'AMEX' THEN 'AMEX' ELSE 'CB CIC' END
+    FROM operations o JOIN lignes l ON l.operation_id = o.id JOIN comptes c ON c.id = l.compte_id
+    WHERE c.nature = 'carte' AND o.carte ~ '\\d{4}\\D*$'
+    ON CONFLICT (numero) DO NOTHING`);
+  await appliquerCartes();
+}
+
+// Moyen de paiement déduit des cartes connues, pour les opérations où il manque.
+async function appliquerCartes() {
+  await pool.query(`UPDATE operations o SET paiement = k.paiement FROM cartes k
+    WHERE o.paiement IS NULL AND o.carte IS NOT NULL AND substring(o.carte from '(\\d{4})\\D*$') = k.numero`);
+}
+
+// Moyen de paiement d'un document : mention explicite, marque de la carte, ou carte déjà connue.
+async function paiementDepuisDocument(r) {
+  if (r.paiement) return r.paiement;
+  if (r.carte && /amex|american\s*express/i.test(r.carte)) return 'AMEX';
+  const m = r.carte && String(r.carte).match(/(\d{4})\D*$/);
+  if (m) {
+    const { rows } = await pool.query('SELECT paiement FROM cartes WHERE numero=$1', [m[1]]);
+    if (rows[0]) return rows[0].paiement;
+  }
+  return null;
 }
 
 // Moyen de paiement attendu pour une ligne d'un compte donné.
@@ -161,4 +187,4 @@ async function corrigerDepuisLigne(ligneId) {
     [r.entite_id, paiementAttendu(r), r.operation_id]);
 }
 
-module.exports = { trouverCompte, insererLignes, rapprocher, candidats, attribuerSocietes, ecarts, paiementAttendu, corrigerDepuisLigne };
+module.exports = { trouverCompte, insererLignes, rapprocher, candidats, attribuerSocietes, ecarts, paiementAttendu, corrigerDepuisLigne, paiementDepuisDocument, appliquerCartes };

@@ -151,6 +151,11 @@ async function init() {
     ALTER TABLE operations ADD COLUMN IF NOT EXISTS livraison TEXT;
     ALTER TABLE operations ADD COLUMN IF NOT EXISTS reglement TEXT;
     ALTER TABLE operations ADD COLUMN IF NOT EXISTS montant_debite NUMERIC(12,2);
+    CREATE TABLE IF NOT EXISTS cartes (
+      numero TEXT PRIMARY KEY,
+      paiement TEXT NOT NULL,
+      appris_le TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
     ALTER TABLE lignes ADD COLUMN IF NOT EXISTS ecart_accepte BOOLEAN NOT NULL DEFAULT FALSE;
     ALTER TABLE operations ADD COLUMN IF NOT EXISTS fournisseur_id INTEGER REFERENCES fournisseurs(id) ON DELETE SET NULL;
     CREATE TABLE IF NOT EXISTS reglements (

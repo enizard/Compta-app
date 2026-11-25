@@ -1,0 +1,50 @@
+<%- include('partials/header') %>
+<% if (liste) { %>
+<div class="head"><h1>Session annuelle de téléchargement</h1></div>
+<p class="muted">Sites où il faut s'identifier (G7…). Leurs débits sont déjà comptés comme rapprochés, avec un justificatif à télécharger. Une fois par an, cliquez sur un site pour lancer son téléchargement : vous vous connectez, les justificatifs sont téléchargés puis déposés ici et rattachés automatiquement. Pour ajouter un site : Fournisseurs → modifier → « session annuelle ».</p>
+<% if (!liste.length) { %><p class="muted">Aucun site pour l'instant.</p><% } else { %>
+<table>
+  <thead><tr><th>Site</th><th class="r">Justificatifs à télécharger</th><th class="r">Montant</th><th>Exercices</th><th>Plus ancien</th><th></th></tr></thead>
+  <tbody>
+  <% liste.forEach(s => { %>
+    <tr class="cliquable" onclick="location.href='/session-annuelle/<%= s.id %>'">
+      <td><strong><%= s.nom %></strong></td>
+      <td class="r <%= s.attendus ? 'neg' : 'pos' %>"><%= s.attendus || '✓' %></td>
+      <td class="r"><%= fmt(s.total) %></td>
+      <td><%= s.exercices || '' %></td>
+      <td><%= s.plus_ancien ? s.plus_ancien.toLocaleDateString('fr-FR') : '' %></td>
+      <td><a href="/session-annuelle/<%= s.id %>">Démarrer le téléchargement →</a></td>
+    </tr>
+  <% }) %>
+  </tbody>
+</table>
+<% } %>
+<% } else { %>
+<div class="head"><h1><a href="/session-annuelle" class="muted">Session annuelle</a> › <%= f.nom %></h1></div>
+<ol>
+  <li><% if (f.url) { %><a href="<%= f.url %>" target="_blank" rel="noopener"><strong>Ouvrir le site <%= f.nom %> et se connecter ↗</strong></a><% } else { %>Lien du site à renseigner dans Fournisseurs → modifier.<% } %></li>
+  <li>Télécharger les justificatifs des opérations ci-dessous (attention : certains sites ne les gardent qu'un an).</li>
+  <li>Les déposer ici : ils sont lus et rattachés automatiquement à leur opération.</li>
+</ol>
+<form method="post" action="/depot" enctype="multipart/form-data" class="grid">
+  <input type="hidden" name="session" value="1"><input type="hidden" name="fournisseur" value="<%= f.id %>">
+  <label class="wide">Justificatifs (PDF, plusieurs à la fois)<input type="file" name="fichier" multiple accept="application/pdf,image/*" required></label>
+  <div class="wide"><button>Déposer</button></div>
+</form>
+<% if (enCours) { %><p class="flash"><%= enCours %> document(s) en cours de lecture…</p><script>setTimeout(() => location.reload(), 6000);</script><% } %>
+<% const att = ops.filter(o => o.justif_attendu); %>
+<h2>À télécharger <span class="muted">(<%= att.length %>)</span></h2>
+<table>
+  <thead><tr><th>Date</th><th>Société</th><th>Libellé du relevé</th><th class="r">Montant</th><th>Justificatif</th></tr></thead>
+  <tbody>
+  <% ops.forEach(o => { %>
+    <tr class="cliquable" onclick="location.href='/operations/<%= o.id %>/edit'">
+      <td><%= o.date_op.toLocaleDateString('fr-FR') %></td><td><%= o.entite || '' %></td><td><%= o.libelle %></td>
+      <td class="r"><%= fmt(o.montant_ttc) %></td>
+      <td class="<%= o.justif_attendu ? 'neg' : 'pos' %>"><%= o.justif_attendu ? 'à télécharger' : '✓ récupéré' %></td>
+    </tr>
+  <% }) %>
+  </tbody>
+</table>
+<% } %>
+<%- include('partials/footer') %>

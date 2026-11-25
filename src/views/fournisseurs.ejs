@@ -19,13 +19,13 @@
     <tbody>
     <% liste.forEach(f => { %>
       <tr>
-        <td><strong><%= f.nom %></strong><% if (f.automatise) { %> <span class="badge auto">Automatisé</span><% } %><% if (f.ecriture_auto) { %> <span class="badge auto">Écriture auto · sans facture</span><% } %><% if (f.note) { %><br><small class="muted"><%= f.note %></small><% } %></td>
+        <td><strong><%= f.nom %></strong><% if (f.automatise) { %> <span class="badge auto">Automatisé</span><% } %><% if (f.ecriture_auto) { %> <span class="badge auto">Écriture auto · sans facture</span><% } %><% if (f.recup_annuelle) { %> <span class="badge auto">Session annuelle</span><% } %><% if (f.note) { %><br><small class="muted"><%= f.note %></small><% } %></td>
         <td><small><%= f.societes || '' %></small></td>
         <td class="r"><%= f.nb %></td>
         <td class="r"><%= f.mois %></td>
         <td class="r"><%= fmt(f.total) %></td>
         <td><%= f.dernier ? f.dernier.toLocaleDateString('fr-FR') : '' %></td>
-        <td class="r <%= f.manquantes && !f.ecriture_auto ? 'neg' : 'pos' %>"><%= f.ecriture_auto ? 'sans objet' : (f.manquantes || '✓') %></td>
+        <td class="r <%= f.manquantes && !f.ecriture_auto && !f.recup_annuelle ? 'neg' : 'pos' %>"><%= f.ecriture_auto ? 'sans objet' : f.recup_annuelle ? (f.manquantes ? f.manquantes + ' en session annuelle' : '✓') : (f.manquantes || '✓') %></td>
         <td>
           <% if (f.url) { %><a href="<%= f.url %>" target="_blank" rel="noopener">Espace factures ↗</a><br><% } %>
           <small><%= f.recuperation ? RECUP[f.recuperation] : (f.classe_le ? '' : 'à analyser…') %></small>
@@ -56,6 +56,7 @@
             </label>
             <label>Lien espace factures<input name="url" value="<%= f.url || '' %>" placeholder="https://…"></label>
             <label class="inline"><input type="checkbox" name="ecriture_auto" value="1" <%= f.ecriture_auto ? 'checked' : '' %>> Écriture automatique sans facture (URSSAF, impôts…)</label>
+            <label class="inline"><input type="checkbox" name="recup_annuelle" value="1" <%= f.recup_annuelle ? 'checked' : '' %>> Site avec identifiant : justificatifs téléchargés une fois par an (session annuelle)</label>
             <label class="inline"><input type="checkbox" name="automatise" value="1" <%= f.automatise ? 'checked' : '' %>> Récupération automatisée</label>
             <label class="wide">Note<input name="note" value="<%= f.note || '' %>"></label>
             <div class="wide"><button>Enregistrer</button></div>

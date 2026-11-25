@@ -353,6 +353,13 @@ async function creerOperationsAuto(lotId) {
       if (facture.operation_id) await rattacherRecu(facture.operation_id, r, { nom: d.nom, mimetype: d.mimetype, data: d.data });
       continue;
     }
+    // Opération créée en attente du justificatif (session annuelle) : on la complète au lieu d'en créer une autre.
+    const attendu = await releves.completerAttendu(r, { nom: d.nom, mimetype: d.mimetype, data: d.data });
+    if (attendu) {
+      await pool.query("UPDATE depots SET statut='enregistre', operation_id=$2 WHERE id=$1", [d.id, attendu]);
+      crees++;
+      continue;
+    }
     const preuvePaiement = r.type_document === 'recu' || r.type_document === 'facturette';
     // Deuxième reçu identique dans le même e-mail : ignoré.
     if (preuvePaiement && frere.some((f) => f.operation_id && f.resultat && ['recu', 'facturette'].includes(f.resultat.type_document) && memeFourn(f.resultat, r))) {
@@ -450,8 +457,10 @@ app.post('/depot', requireAuth, upload.array('fichier', 50), async (req, res) =>
       dejaMis.push(`${f.originalname} (déjà déposé le ${quand}${ex[0].nom !== f.originalname ? ` sous le nom ${ex[0].nom}` : ''})`);
       continue;
     }
-    const { rows } = await pool.query('INSERT INTO lots (nom, created_by, hash, data, mimetype) VALUES ($1,$2,$3,$4,$5) RETURNING id',
-      [f.originalname, req.session.user.id, hash, f.buffer, f.mimetype]);
+    // Session annuelle : documents enregistrés et rattachés automatiquement, sans fenêtre de validation.
+    const auto = req.body.session === '1';
+    const { rows } = await pool.query('INSERT INTO lots (nom, created_by, hash, data, mimetype, auto, info) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id',
+      [f.originalname, req.session.user.id, hash, f.buffer, f.mimetype, auto, auto ? 'Session annuelle de téléchargement' : null]);
     ids.push(rows[0].id);
     mettreEnFile(rows[0].id, f, req.session.user.id);
   }
@@ -459,6 +468,10 @@ app.post('/depot', requireAuth, upload.array('fichier', 50), async (req, res) =>
   if (dejaMis.length) msgs.push(`Déjà mis, non retraité : ${dejaMis.join(' ; ')}.`);
   if (refuses.length) msgs.push(`Format non pris en charge (PDF ou photo) : ${refuses.map((f) => f.originalname).join(', ')}.`);
   // Appel depuis la zone de dépôt : on renvoie les lots, la fenêtre s'ouvre côté navigateur.
+  if (req.body.session === '1') {
+    flash(req, `${ids.length} justificatif(s) reçu(s) : lecture et rattachement en cours.${msgs.length ? ' ' + msgs.join(' ') : ''}`);
+    return res.redirect(`/session-annuelle/${Number(req.body.fournisseur) || ''}`);
+  }
   if ((req.get('Accept') || '').includes('application/json')) return res.json({ lots: ids, message: msgs.join(' ') });
   if (msgs.length) flash(req, msgs.join(' '), 'err');
   res.redirect(ids.length ? `/lot/${ids[0]}` : '/operations');
@@ -1045,13 +1058,38 @@ app.post('/fournisseurs/:id', requireAuth, async (req, res) => {
     }
   }
   await pool.query(
-    `UPDATE fournisseurs SET type=$1, en_ligne=$2, url=$3, recuperation=$4, note=$5, automatise=$6, ecriture_auto=$8, modifie_main=TRUE WHERE id=$7`,
+    `UPDATE fournisseurs SET type=$1, en_ligne=$2, url=$3, recuperation=$4, note=$5, automatise=$6, ecriture_auto=$8, recup_annuelle=$9, modifie_main=TRUE WHERE id=$7`,
     [b.type === 'recurrent' ? 'recurrent' : 'ponctuel', b.en_ligne === '1',
       url, ['email', 'api', 'portail', 'non'].includes(b.recuperation) ? b.recuperation : null,
-      (b.note || '').trim() || null, b.automatise === '1', id, b.ecriture_auto === '1']);
-  if (b.ecriture_auto === '1') await releves.rapprocher();
+      (b.note || '').trim() || null, b.automatise === '1', id, b.ecriture_auto === '1', b.recup_annuelle === '1']);
+  if (b.ecriture_auto === '1' || b.recup_annuelle === '1') await releves.rapprocher();
   flash(req, 'Fournisseur mis à jour.');
   res.redirect('/fournisseurs');
+});
+
+// ---------- session annuelle de téléchargement (sites avec identifiant) ----------
+app.get('/session-annuelle', requireAuth, async (req, res) => {
+  const { rows } = await pool.query(`
+    SELECT f.id, f.nom, f.url,
+      COUNT(o.id) FILTER (WHERE o.justif_attendu)::int AS attendus,
+      COALESCE(SUM(o.montant_ttc) FILTER (WHERE o.justif_attendu), 0) AS total,
+      string_agg(DISTINCT to_char(o.date_op, 'YYYY'), ', ') FILTER (WHERE o.justif_attendu) AS exercices,
+      MIN(o.date_op) FILTER (WHERE o.justif_attendu) AS plus_ancien
+    FROM fournisseurs f LEFT JOIN operations o ON o.fournisseur_id = f.id
+    WHERE f.recup_annuelle GROUP BY f.id ORDER BY COUNT(o.id) FILTER (WHERE o.justif_attendu) DESC, f.nom`);
+  res.render('session_annuelle', { liste: rows, f: null, ops: [] });
+});
+
+app.get('/session-annuelle/:id', requireAuth, async (req, res) => {
+  const { rows: f } = await pool.query('SELECT id, nom, url FROM fournisseurs WHERE id=$1', [req.params.id]);
+  if (!f[0]) return res.redirect('/session-annuelle');
+  const { rows: ops } = await pool.query(`
+    SELECT o.id, o.date_op, o.montant_ttc, o.libelle, e.nom AS entite, o.justif_attendu
+    FROM operations o LEFT JOIN entites e ON e.id = o.entite_id
+    WHERE o.fournisseur_id = $1 AND (o.justif_attendu OR o.notes = 'Justificatif récupéré lors de la session annuelle')
+    ORDER BY o.justif_attendu DESC, o.date_op`, [f[0].id]);
+  const { rows: enCours } = await pool.query("SELECT COUNT(*)::int AS n FROM lots WHERE auto AND info = 'Session annuelle de téléchargement' AND statut = 'en_cours'");
+  res.render('session_annuelle', { liste: null, f: f[0], ops, enCours: enCours[0].n });
 });
 
 // ---------- boîte factures (e-mails) ----------

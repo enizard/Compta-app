@@ -93,20 +93,24 @@ async function rapprocher() {
 // Organismes sans facture (URSSAF, DGFIP…) : chaque ligne de relevé devient une écriture réglée, sans justificatif demandé.
 async function ecrituresSansFacture() {
   const { rows } = await pool.query(`
-    SELECT l.id, l.date_op, l.libelle, l.montant, c.entite_id, c.nature, c.banque, f.id AS fid, f.nom AS fnom, f.cle
+    SELECT l.id, l.date_op, l.libelle, l.montant, c.entite_id, c.nature, c.banque, f.id AS fid, f.nom AS fnom, f.cle, f.ecriture_auto
     FROM lignes l JOIN comptes c ON c.id = l.compte_id JOIN fournisseurs f ON f.id = l.fournisseur_id
-    WHERE f.ecriture_auto AND l.operation_id IS NULL AND l.total_carte IS NULL AND NOT l.ignoree AND c.entite_id IS NOT NULL`);
+    WHERE (f.ecriture_auto OR f.recup_annuelle) AND l.operation_id IS NULL AND l.total_carte IS NULL AND NOT l.ignoree AND c.entite_id IS NOT NULL`);
   let n = 0;
   for (const l of rows) {
-    const catNom = /urssaf/.test(l.cle) ? 'Salaires & charges sociales' : 'Impôts & taxes';
-    const { rows: cat } = await pool.query('SELECT id FROM categories WHERE nom=$1', [catNom]);
+    // Écriture auto : catégorie de l'organisme. Récupération annuelle : catégorie habituelle du fournisseur.
+    const { rows: cat } = l.ecriture_auto
+      ? await pool.query('SELECT id FROM categories WHERE nom=$1', [/urssaf/.test(l.cle) ? 'Salaires & charges sociales' : 'Impôts & taxes'])
+      : await pool.query('SELECT categorie_id AS id FROM operations WHERE fournisseur_id=$1 AND categorie_id IS NOT NULL ORDER BY date_op DESC LIMIT 1', [l.fid]);
     const { rows: ins } = await pool.query(
       `INSERT INTO operations (entite_id, date_op, type, categorie_id, libelle, tiers, montant_ttc, tva, notes, paiement,
-         reglement, date_paiement, fournisseur_id)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,0,$8,$9,'Déjà réglé',$2,$10) RETURNING id`,
+         reglement, date_paiement, fournisseur_id, justif_attendu)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,0,$8,$9,'Déjà réglé',$2,$10,$11) RETURNING id`,
       [l.entite_id, l.date_op, Number(l.montant) < 0 ? 'depense' : 'recette', cat[0] ? cat[0].id : null, l.libelle, l.fnom,
-        Math.abs(Number(l.montant)), 'Écriture automatique sans facture (justificatif : déclaration / avis de l\'organisme)',
-        paiementAttendu(l), l.fid]);
+        Math.abs(Number(l.montant)),
+        l.ecriture_auto ? 'Écriture automatique sans facture (justificatif : déclaration / avis de l\'organisme)'
+          : 'Justificatif à télécharger lors de la session annuelle',
+        paiementAttendu(l), l.fid, !l.ecriture_auto]);
     await pool.query('UPDATE lignes SET operation_id=$1 WHERE id=$2 AND operation_id IS NULL', [ins[0].id, l.id]);
     n++;
   }
@@ -211,4 +215,23 @@ async function corrigerDepuisLigne(ligneId) {
     [r.entite_id, paiementAttendu(r), r.operation_id]);
 }
 
-module.exports = { trouverCompte, insererLignes, rapprocher, candidats, attribuerSocietes, ecarts, paiementAttendu, corrigerDepuisLigne, paiementDepuisDocument, appliquerCartes };
+// Justificatif déposé pour une opération créée en attente (session annuelle) : on complète cette opération.
+async function completerAttendu(r, doc) {
+  const { idFournisseur } = require('./fournisseurs');
+  const fid = r.fournisseur ? await idFournisseur(r.fournisseur) : null;
+  const montants = [r.montant_ttc, r.montant_paye].filter(Boolean);
+  if (!fid || !montants.length || !r.date) return null;
+  const { rows } = await pool.query(`
+    SELECT o.id FROM operations o JOIN fournisseurs f ON f.id = o.fournisseur_id
+    WHERE o.justif_attendu AND o.fournisseur_id = $1 AND EXISTS (SELECT 1 FROM unnest($2::numeric[]) m WHERE ABS(o.montant_ttc - m) < 0.01)
+      AND ABS(o.date_op - $3::date) <= 10
+    ORDER BY ABS(o.date_op - $3::date) LIMIT 1`, [fid, montants, r.date]);
+  if (!rows[0]) return null;
+  await pool.query(`UPDATE operations SET justif_attendu = FALSE, justif_nom=$1, justif_type=$2, justif_data=$3,
+      tva = $4, numero_facture = COALESCE($5, numero_facture), date_op = $6,
+      notes = 'Justificatif récupéré lors de la session annuelle', updated_at = NOW() WHERE id = $7`,
+    [doc.nom, doc.mimetype, doc.data, r.tva || 0, r.numero_facture || null, r.date, rows[0].id]);
+  return rows[0].id;
+}
+
+module.exports = { completerAttendu, trouverCompte, insererLignes, rapprocher, candidats, attribuerSocietes, ecarts, paiementAttendu, corrigerDepuisLigne, paiementDepuisDocument, appliquerCartes };

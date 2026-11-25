@@ -1,6 +1,6 @@
 <%- include('partials/header') %>
 <div class="head">
-  <h1>Rapprochement bancaire</h1>
+  <h1>Relevés</h1>
   <% if (compte) { %>
   <form method="post" action="/rapprochement/auto" class="inline">
     <input type="hidden" name="compte" value="<%= compte.id %>">

@@ -99,12 +99,16 @@
     <% } %>
     </div></fieldset>
     <fieldset class="wide bloc"><legend>Règlement</legend><div class="grid">
-    <label>Règlement
-      <select name="reglement">
-        <option value="">—</option>
-        <% REGLEMENTS.forEach(x => { %><option <%= op.reglement === x ? 'selected' : '' %>><%= x %></option><% }) %>
-      </select>
-    </label>
+    <div class="wide">
+      <span class="lbl">Règlement</span>
+      <div class="segments">
+        <% REGLEMENTS.forEach(x => { %>
+          <label class="seg seg-<%= x === 'À régler' ? 'non' : x === 'Déjà réglé' ? 'oui' : 'part' %>">
+            <input type="radio" name="reglement" value="<%= x %>" <%= op.reglement === x ? 'checked' : '' %>><span><%= x %></span>
+          </label>
+        <% }) %>
+      </div>
+    </div>
     <label class="reg-detail">Moyen de paiement
       <select name="paiement">
         <option value="">Je ne sais plus (déterminé au rapprochement bancaire)</option>
@@ -183,12 +187,12 @@
     // « Carte utilisée » : seulement si une carte a été reconnue ou si le paiement est par carte.
     // Statut « À régler » : les éléments de règlement ne servent à rien, on les masque.
     function majCarte() {
-      const aRegler = f.reglement.value === 'À régler';
+      const aRegler = (f.querySelector('input[name="reglement"]:checked') || {}).value === 'À régler';
       document.querySelectorAll('.reg-detail').forEach((el) => { el.hidden = aRegler; });
       const carte = ['CB CIC', 'AMEX'].includes(f.paiement.value) || f.carte.value.trim() !== '';
       document.getElementById('champCarte').hidden = aRegler || !carte;
     }
-    f.paiement.addEventListener('change', majCarte); f.reglement.addEventListener('change', majCarte); majCarte();
+    f.paiement.addEventListener('change', majCarte); f.querySelectorAll('input[name="reglement"]').forEach((r) => r.addEventListener('change', majCarte)); majCarte();
     const ech = document.getElementById('echeancier'), corps = document.getElementById('lignesReg');
     function reste() {
       const tot = [...corps.querySelectorAll('input[name="reg_montant[]"]')].reduce((a, i) => a + num(i.value), 0);

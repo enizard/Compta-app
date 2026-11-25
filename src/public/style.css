@@ -96,3 +96,17 @@ fieldset.bloc > .grid { gap: 0 16px; }
 label[hidden] { display: none !important; }
 .reg-detail[hidden], div[hidden] { display: none !important; }
 .warn { color: #b54708; }
+
+.lbl { display: block; font-weight: 500; margin-bottom: 4px; }
+.segments { display: inline-flex; border: 1px solid #cfd4dc; border-radius: 8px; overflow: hidden; margin-bottom: 12px; }
+.seg { margin: 0; cursor: pointer; font-weight: 500; }
+.seg input { display: none; }
+.seg span { display: block; padding: 8px 16px; background: #fff; color: #1d2433; border-right: 1px solid #cfd4dc; transition: background .15s, color .15s; }
+.seg:last-child span { border-right: 0; }
+.seg span:hover { background: #f1f3f7; }
+.seg-non input:checked + span { background: #b42318; color: #fff; }
+.seg-part input:checked + span { background: #b54708; color: #fff; }
+.seg-oui input:checked + span { background: #137a3a; color: #fff; }
+tr.cliquable { cursor: pointer; transition: background-color .2s ease, box-shadow .2s ease, transform .2s ease; }
+tr.cliquable:hover { background: linear-gradient(90deg, #eef3ff, #f5efff); box-shadow: inset 4px 0 0 #6d28d9; }
+tr.cliquable:hover td { color: inherit; }

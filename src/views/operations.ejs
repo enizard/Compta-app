@@ -76,7 +76,7 @@
   <thead><tr><th>Date</th><th>Société</th><th>Libellé</th><th>Tiers</th><th>Catégorie</th><th>Paiement</th><th>Règlement</th><th class="r">Montant TTC</th><th class="r">TVA</th><th>Justif.</th><th></th></tr></thead>
   <tbody>
   <% ops.forEach(o => { %>
-    <tr>
+    <tr class="cliquable" data-href="/operations/<%= o.id %>/edit">
       <td><%= o.date_op.toLocaleDateString('fr-FR') %></td>
       <td><%= o.entite || '' %><% if (!o.entite) { %><span class="neg">À déterminer</span><% } %></td>
       <td><%= o.libelle %><% if (o.livraison && o.livraison !== 'Livré en totalité') { %> <span class="badge warn"><%= o.livraison %></span><% } %></td>
@@ -95,6 +95,11 @@
   </tbody>
 </table>
 <script>
+  // Ligne cliquable : ouvre la fiche (sauf clic sur un lien ou un bouton de la ligne).
+  document.querySelectorAll('tr.cliquable').forEach((tr) => tr.addEventListener('click', (e) => {
+    if (e.target.closest('a, button, input, select, form')) return;
+    location.href = tr.dataset.href;
+  }));
   const modale = document.getElementById('modale'), cadre = document.getElementById('cadre');
   function ouvrir(url) {
     cadre.src = url; modale.hidden = false; document.body.style.overflow = 'hidden';

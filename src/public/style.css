@@ -161,3 +161,8 @@ tr.cliquable:hover { background: linear-gradient(90deg, #fbe4cf, #fdf3e6); box-s
 .code { background: var(--accent-clair); }
 .retour { margin: 0 0 8px; } .retour a { font-weight: 600; }
 .badge.auto { background: #137a3a; font-weight: 600; }
+.segments.modes { margin: 0; white-space: nowrap; }
+.segments.modes button { border: 0; border-right: 1px solid #dccbb5; border-radius: 0; background: #fffdfa; color: #4a3b2a; padding: 4px 8px; font-size: 12px; font-weight: 500; }
+.segments.modes button:last-child { border-right: 0; }
+.segments.modes button:hover { background: #f6ecdf; }
+.segments.modes button.on { background: var(--accent); color: #fff; }

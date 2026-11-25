@@ -1058,33 +1058,34 @@ app.post('/fournisseurs/:id', requireAuth, async (req, res) => {
     }
   }
   await pool.query(
-    `UPDATE fournisseurs SET type=$1, en_ligne=$2, url=$3, recuperation=$4, note=$5, automatise=$6, ecriture_auto=$8, recup_annuelle=$9, modifie_main=TRUE WHERE id=$7`,
+    `UPDATE fournisseurs SET type=$1, en_ligne=$2, url=$3, recuperation=$4, note=$5, automatise=$6, modifie_main=TRUE WHERE id=$7`,
     [b.type === 'recurrent' ? 'recurrent' : 'ponctuel', b.en_ligne === '1',
       url, ['email', 'api', 'portail', 'non'].includes(b.recuperation) ? b.recuperation : null,
-      (b.note || '').trim() || null, b.automatise === '1', id, b.ecriture_auto === '1', b.recup_annuelle === '1']);
-  if (b.ecriture_auto === '1' || b.recup_annuelle === '1') await releves.rapprocher();
+      (b.note || '').trim() || null, b.automatise === '1', id]);
   flash(req, 'Fournisseur mis à jour.');
   res.redirect('/fournisseurs');
 });
 
-// Case « Session annuelle » cochée / décochée directement dans la liste des fournisseurs.
-app.post('/fournisseurs/:id/session', requireAuth, async (req, res) => {
-  const oui = (req.body || {}).recup_annuelle === '1';
-  await pool.query('UPDATE fournisseurs SET recup_annuelle=$1, modifie_main=TRUE WHERE id=$2', [oui, req.params.id]);
-  // Décoché : les opérations encore en attente redeviennent des débits à rapprocher.
-  if (!oui) {
-    const { rows } = await pool.query(
-      'SELECT id FROM operations WHERE fournisseur_id=$1 AND justif_attendu AND justif_data IS NULL', [req.params.id]);
-    const ids = rows.map((r) => r.id);
-    if (ids.length) {
-      await pool.query('UPDATE lignes SET operation_id=NULL WHERE operation_id = ANY($1)', [ids]);
-      await pool.query('DELETE FROM reglements WHERE operation_id = ANY($1)', [ids]);
-      await pool.query('DELETE FROM operations WHERE id = ANY($1)', [ids]);
-    }
-  } else {
-    await releves.rapprocher();
+// Mode de récupération des factures, choisi par boutons dans la liste des fournisseurs.
+const MODES = ['email', 'session', 'auto', 'scan'];
+app.post('/fournisseurs/:id/mode', requireAuth, async (req, res) => {
+  const id = Number(req.params.id);
+  const mode = MODES.includes((req.body || {}).mode) ? req.body.mode : null;
+  await pool.query(`UPDATE fournisseurs SET mode=$1, recup_annuelle = COALESCE($1 = 'session', FALSE), ecriture_auto = COALESCE($1 = 'auto', FALSE),
+      automatise = CASE WHEN $1 = 'email' THEN TRUE ELSE automatise END, modifie_main=TRUE WHERE id=$2`, [mode, id]);
+  // Opérations créées d'office (session annuelle sans justificatif, écriture sans facture) qui ne correspondent plus au mode :
+  // elles redeviennent des débits à rapprocher.
+  const { rows } = await pool.query(`SELECT id FROM operations WHERE fournisseur_id=$1 AND justif_data IS NULL AND (
+      (justif_attendu AND $2 IS DISTINCT FROM 'session')
+      OR (notes LIKE 'Écriture automatique sans facture%' AND $2 IS DISTINCT FROM 'auto'))`, [id, mode]);
+  const ids = rows.map((r) => r.id);
+  if (ids.length) {
+    await pool.query('UPDATE lignes SET operation_id=NULL WHERE operation_id = ANY($1)', [ids]);
+    await pool.query('DELETE FROM reglements WHERE operation_id = ANY($1)', [ids]);
+    await pool.query('DELETE FROM operations WHERE id = ANY($1)', [ids]);
   }
-  if ((req.get('Accept') || '').includes('application/json')) return res.json({ ok: true, recup_annuelle: oui });
+  if (mode === 'session' || mode === 'auto') await releves.rapprocher();
+  if ((req.get('Accept') || '').includes('application/json')) return res.json({ ok: true, mode });
   res.redirect('/fournisseurs');
 });
 

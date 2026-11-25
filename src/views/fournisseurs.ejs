@@ -1,4 +1,5 @@
 <%- include('partials/header') %>
+<% const MODES = [['email', 'Email → factures@', 'Factures reçues sur factures@simpleandnew.com'], ['session', 'Session annuelle', 'Site avec identifiant : justificatifs téléchargés une fois par an'], ['auto', 'Sans facture', 'Écriture automatique sans facture (URSSAF, impôts…)'], ['scan', 'Ticket à scanner', 'Ticket ou facture papier à scanner'], ['', 'À définir', 'Pas encore décidé']]; %>
 <% const RECUP = { email: 'Automatisable — factures reçues par e-mail', api: 'Automatisable — API / connecteur', portail: 'Manuel — téléchargement sur le site', non: 'Pas de facture en ligne' }; %>
 <div class="head">
   <h1>Fournisseurs</h1>
@@ -15,7 +16,7 @@
   <% if (aide) { %><p class="muted"><%= aide %></p><% } %>
   <% if (!liste.length) { %><p class="muted">Aucun.</p><% return; } %>
   <table>
-    <thead><tr><th>Fournisseur</th><th>Société(s)</th><th class="r">Opérations</th><th class="r">Mois</th><th class="r">Total</th><th>Dernier</th><th class="r">Factures manquantes</th><th>Factures</th><th>Session annuelle</th><th></th></tr></thead>
+    <thead><tr><th>Fournisseur</th><th>Société(s)</th><th class="r">Opérations</th><th class="r">Mois</th><th class="r">Total</th><th>Dernier</th><th class="r">Factures manquantes</th><th>Factures</th><th>Mode de récupération</th><th></th></tr></thead>
     <tbody>
     <% liste.forEach(f => { %>
       <tr>
@@ -31,9 +32,9 @@
           <small><%= f.recuperation ? RECUP[f.recuperation] : (f.classe_le ? '' : 'à analyser…') %></small>
         </td>
         <td>
-          <form method="post" action="/fournisseurs/<%= f.id %>/session" class="inline">
-            <label class="inline" title="Site avec identifiant : justificatifs téléchargés une fois par an"><input type="checkbox" name="recup_annuelle" value="1" <%= f.recup_annuelle ? 'checked' : '' %> onchange="basculerSession(this)"> Oui</label>
-          </form>
+          <span class="segments modes" data-action="/fournisseurs/<%= f.id %>/mode">
+            <% MODES.forEach(([k, lib, aide]) => { %><button type="button" class="<%= (f.mode || '') === k ? 'on' : '' %>" data-mode="<%= k %>" title="<%= aide %>" onclick="choisirMode(this)"><%= lib %></button><% }) %>
+          </span>
         </td>
         <td><a href="#" onclick="document.getElementById('ed<%= f.id %>').hidden = !document.getElementById('ed<%= f.id %>').hidden; return false;">modifier</a></td>
       </tr>
@@ -60,8 +61,6 @@
               </select>
             </label>
             <label>Lien espace factures<input name="url" value="<%= f.url || '' %>" placeholder="https://…"></label>
-            <label class="inline"><input type="checkbox" name="ecriture_auto" value="1" <%= f.ecriture_auto ? 'checked' : '' %>> Écriture automatique sans facture (URSSAF, impôts…)</label>
-            <label class="inline"><input type="checkbox" name="recup_annuelle" value="1" <%= f.recup_annuelle ? 'checked' : '' %>> Site avec identifiant : justificatifs téléchargés une fois par an (session annuelle)</label>
             <label class="inline"><input type="checkbox" name="automatise" value="1" <%= f.automatise ? 'checked' : '' %>> Récupération automatisée</label>
             <label class="wide">Note<input name="note" value="<%= f.note || '' %>"></label>
             <div class="wide"><button>Enregistrer</button></div>
@@ -78,15 +77,18 @@
 <% bloc('Factures unitaires — à récupérer en ligne', groupes.ponctuelsEnLigne, 'Achats ponctuels dont la facture est disponible dans un espace client ou par e-mail (ex. commande Nespresso, Amazon).') %>
 <% bloc('Factures unitaires — sans espace en ligne', groupes.ponctuels, 'Ticket ou facture à conserver / demander sur place.') %>
 <script>
-// Coche « Session annuelle » sans recharger la page (on garde la position de défilement).
-async function basculerSession(cb) {
-  cb.disabled = true;
+// Choix du mode sans recharger la page (on garde la position de défilement).
+async function choisirMode(b) {
+  const g = b.parentElement, avant = g.querySelector('.on');
+  g.querySelectorAll('button').forEach((x) => x.classList.toggle('on', x === b));
   try {
-    const r = await fetch(cb.form.action, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' },
-      body: cb.checked ? 'recup_annuelle=1' : '' });
+    const r = await fetch(g.dataset.action, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' },
+      body: 'mode=' + encodeURIComponent(b.dataset.mode) });
     if (!r.ok) throw new Error();
-  } catch (e) { cb.checked = !cb.checked; alert('Enregistrement impossible, réessayez.'); }
-  cb.disabled = false;
+  } catch (e) {
+    g.querySelectorAll('button').forEach((x) => x.classList.toggle('on', x === avant));
+    alert('Enregistrement impossible, réessayez.');
+  }
 }
 </script>
 <%- include('partials/footer') %>

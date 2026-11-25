@@ -1069,7 +1069,7 @@ app.post('/fournisseurs/:id', requireAuth, async (req, res) => {
 
 // Case « Session annuelle » cochée / décochée directement dans la liste des fournisseurs.
 app.post('/fournisseurs/:id/session', requireAuth, async (req, res) => {
-  const oui = req.body.recup_annuelle === '1';
+  const oui = (req.body || {}).recup_annuelle === '1';
   await pool.query('UPDATE fournisseurs SET recup_annuelle=$1, modifie_main=TRUE WHERE id=$2', [oui, req.params.id]);
   // Décoché : les opérations encore en attente redeviennent des débits à rapprocher.
   if (!oui) {

@@ -166,7 +166,7 @@
     }
     f.montant_ttc.addEventListener('input', maj); f.tva.addEventListener('input', maj); maj();
     // Moyens de paiement selon la société choisie.
-    const MOYENS = <%- JSON.stringify(moyens || {}) %>, NOMS = <%- JSON.stringify(Object.fromEntries(entites.map(e => [e.id, e.nom]))) %>;
+    const MOYENS = <%- JSON.stringify(typeof moyens !== 'undefined' ? moyens : {}) %>, NOMS = <%- JSON.stringify(Object.fromEntries(entites.map(e => [e.id, e.nom]))) %>;
     const COURT = { 'Simple and New': 'SAN', 'SCI E NIZARD': 'SCI' };
     function majMoyens() {
       const id = f.entite_id.value, nom = NOMS[id], dispo = MOYENS[id];

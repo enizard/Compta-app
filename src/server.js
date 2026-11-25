@@ -572,7 +572,7 @@ app.get('/depot/:id', requireAuth, async (req, res) => {
     }
   }
   op.numero_facture = r.numero_facture || '';
-  res.render('operation_form', { op, depot: d, position, doublons, factureRecu, entites, categories });
+  res.render('operation_form', { op, depot: d, position, doublons, factureRecu, entites, categories, moyens: await moyensParEntite() });
 });
 
 app.get('/depot/:id/fichier', requireAuth, async (req, res) => {

@@ -32,7 +32,7 @@
         </td>
         <td>
           <form method="post" action="/fournisseurs/<%= f.id %>/session" class="inline">
-            <label class="inline" title="Site avec identifiant : justificatifs téléchargés une fois par an"><input type="checkbox" name="recup_annuelle" value="1" <%= f.recup_annuelle ? 'checked' : '' %> onchange="this.form.submit()"> Oui</label>
+            <label class="inline" title="Site avec identifiant : justificatifs téléchargés une fois par an"><input type="checkbox" name="recup_annuelle" value="1" <%= f.recup_annuelle ? 'checked' : '' %> onchange="basculerSession(this)"> Oui</label>
           </form>
         </td>
         <td><a href="#" onclick="document.getElementById('ed<%= f.id %>').hidden = !document.getElementById('ed<%= f.id %>').hidden; return false;">modifier</a></td>
@@ -77,4 +77,16 @@
 <% bloc('Récurrents — sans espace en ligne', groupes.recurrents) %>
 <% bloc('Factures unitaires — à récupérer en ligne', groupes.ponctuelsEnLigne, 'Achats ponctuels dont la facture est disponible dans un espace client ou par e-mail (ex. commande Nespresso, Amazon).') %>
 <% bloc('Factures unitaires — sans espace en ligne', groupes.ponctuels, 'Ticket ou facture à conserver / demander sur place.') %>
+<script>
+// Coche « Session annuelle » sans recharger la page (on garde la position de défilement).
+async function basculerSession(cb) {
+  cb.disabled = true;
+  try {
+    const r = await fetch(cb.form.action, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' },
+      body: cb.checked ? 'recup_annuelle=1' : '' });
+    if (!r.ok) throw new Error();
+  } catch (e) { cb.checked = !cb.checked; alert('Enregistrement impossible, réessayez.'); }
+  cb.disabled = false;
+}
+</script>
 <%- include('partials/footer') %>

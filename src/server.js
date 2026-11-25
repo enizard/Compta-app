@@ -1084,6 +1084,7 @@ app.post('/fournisseurs/:id/session', requireAuth, async (req, res) => {
   } else {
     await releves.rapprocher();
   }
+  if ((req.get('Accept') || '').includes('application/json')) return res.json({ ok: true, recup_annuelle: oui });
   res.redirect('/fournisseurs');
 });
 

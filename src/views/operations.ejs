@@ -73,23 +73,25 @@
 </div>
 
 <table>
-  <thead><tr><th>Date</th><th>Société</th><th>Libellé</th><th>Tiers</th><th>Catégorie</th><th>Paiement</th><th class="r">Montant TTC</th><th class="r">TVA</th><th>Justif.</th><th></th></tr></thead>
+  <thead><tr><th>Date</th><th>Société</th><th>Libellé</th><th>Tiers</th><th>Catégorie</th><th>Paiement</th><th>Règlement</th><th class="r">Montant TTC</th><th class="r">TVA</th><th>Justif.</th><th></th></tr></thead>
   <tbody>
   <% ops.forEach(o => { %>
     <tr>
       <td><%= o.date_op.toLocaleDateString('fr-FR') %></td>
       <td><%= o.entite || '' %><% if (!o.entite) { %><span class="neg">À déterminer</span><% } %></td>
-      <td><%= o.libelle %><% if (o.reglement && o.reglement !== 'Déjà réglé') { %> <span class="badge"><%= o.reglement %></span><% } %><% if (o.livraison && o.livraison !== 'Livré en totalité') { %> <span class="badge warn"><%= o.livraison %></span><% } %></td>
+      <td><%= o.libelle %><% if (o.livraison && o.livraison !== 'Livré en totalité') { %> <span class="badge warn"><%= o.livraison %></span><% } %></td>
       <td><%= o.tiers || '' %></td>
       <td><%= o.categorie || '' %></td>
+      <% const reg = o.reglement || (o.rapprochee || o.date_paiement || o.paiement ? 'Déjà réglé' : 'À régler'); %>
       <td><%= libPaiement(o.paiement, o.entite) %><% if (!o.paiement && o.type === 'depense') { %><span class="muted">À déterminer</span><% } %></td>
+      <td class="<%= reg === 'Déjà réglé' ? 'pos' : reg === 'À régler' ? 'neg' : 'warn' %>"><%= reg === 'Déjà réglé' ? '✓ Réglé' : reg === 'À régler' ? 'Non réglé' : reg %></td>
       <td class="r <%= o.type === 'recette' ? 'pos' : 'neg' %>"><%= o.type === 'recette' ? '+' : '−' %> <%= fmt(o.montant_ttc) %></td>
       <td class="r"><%= Number(o.tva) ? fmt(o.tva) : '' %></td>
       <td><% if (o.rapprochee) { %><span title="Rapprochée avec le relevé">🏦</span><% } %><% if (o.justif_nom) { %><a href="/operations/<%= o.id %>/justificatif" target="_blank">📎</a><% } else if (!o.rapprochee) { %><span class="muted">—</span><% } %></td>
       <td><a href="/operations/<%= o.id %>/edit">Modifier</a></td>
     </tr>
   <% }) %>
-  <% if (!ops.length) { %><tr><td colspan="10" class="muted center">Aucune opération.</td></tr><% } %>
+  <% if (!ops.length) { %><tr><td colspan="11" class="muted center">Aucune opération.</td></tr><% } %>
   </tbody>
 </table>
 <script>

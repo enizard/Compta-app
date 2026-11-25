@@ -95,3 +95,4 @@ fieldset.bloc legend { font-weight: 700; font-size: 15px; padding: 0 6px; color:
 fieldset.bloc > .grid { gap: 0 16px; }
 label[hidden] { display: none !important; }
 .reg-detail[hidden], div[hidden] { display: none !important; }
+.warn { color: #b54708; }

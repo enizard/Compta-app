@@ -66,13 +66,16 @@ async function mettreAJour() {
       const res = await classerFournisseurs(rows.map((r) => ({ ...r, exemples: r.exemples.length ? r.exemples : [r.nom] })));
       for (const r of res) {
         await pool.query(
-          `UPDATE fournisseurs SET type=$1, en_ligne=$2, url=$3, recuperation=$4, note=$5, classe_le=NOW()
+          `UPDATE fournisseurs SET type=$1, en_ligne=$2, url=$3, recuperation=$4, note=$5, classe_le=NOW(),
+             ecriture_auto = ecriture_auto OR cle ~ '(^| )(urssaf|dgfip|sie|impots|tresor public)( |$)'
            WHERE id=$6 AND NOT modifie_main`,
           [r.recurrent ? 'recurrent' : 'ponctuel', r.en_ligne, r.url, r.recuperation, r.note, r.id]);
       }
       // Ceux que l'IA n'a pas renvoyés ne doivent pas boucler indéfiniment.
       await pool.query('UPDATE fournisseurs SET classe_le=NOW() WHERE id = ANY($1) AND classe_le IS NULL', [rows.map((r) => r.id)]);
     }
+    // Les fournisseurs viennent d'être rattachés : écritures automatiques (URSSAF, DGFIP…) et rapprochement.
+    await require('./releves').rapprocher();
   } catch (e) {
     console.error('Fournisseurs :', e.message);
   } finally {

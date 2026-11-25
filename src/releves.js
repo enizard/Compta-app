@@ -85,8 +85,32 @@ async function rapprocher() {
       } catch (e) { /* opération déjà prise entre-temps */ }
     }
   }
+  auto += await ecrituresSansFacture();
   await attribuerSocietes();
   return auto;
+}
+
+// Organismes sans facture (URSSAF, DGFIP…) : chaque ligne de relevé devient une écriture réglée, sans justificatif demandé.
+async function ecrituresSansFacture() {
+  const { rows } = await pool.query(`
+    SELECT l.id, l.date_op, l.libelle, l.montant, c.entite_id, c.nature, c.banque, f.id AS fid, f.nom AS fnom, f.cle
+    FROM lignes l JOIN comptes c ON c.id = l.compte_id JOIN fournisseurs f ON f.id = l.fournisseur_id
+    WHERE f.ecriture_auto AND l.operation_id IS NULL AND l.total_carte IS NULL AND NOT l.ignoree AND c.entite_id IS NOT NULL`);
+  let n = 0;
+  for (const l of rows) {
+    const catNom = /urssaf/.test(l.cle) ? 'Salaires & charges sociales' : 'Impôts & taxes';
+    const { rows: cat } = await pool.query('SELECT id FROM categories WHERE nom=$1', [catNom]);
+    const { rows: ins } = await pool.query(
+      `INSERT INTO operations (entite_id, date_op, type, categorie_id, libelle, tiers, montant_ttc, tva, notes, paiement,
+         reglement, date_paiement, fournisseur_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,0,$8,$9,'Déjà réglé',$2,$10) RETURNING id`,
+      [l.entite_id, l.date_op, Number(l.montant) < 0 ? 'depense' : 'recette', cat[0] ? cat[0].id : null, l.libelle, l.fnom,
+        Math.abs(Number(l.montant)), 'Écriture automatique sans facture (justificatif : déclaration / avis de l\'organisme)',
+        paiementAttendu(l), l.fid]);
+    await pool.query('UPDATE lignes SET operation_id=$1 WHERE id=$2 AND operation_id IS NULL', [ins[0].id, l.id]);
+    n++;
+  }
+  return n;
 }
 
 // Une opération saisie avec « société à déterminer » prend la société du compte où elle a été rapprochée.

@@ -1045,10 +1045,11 @@ app.post('/fournisseurs/:id', requireAuth, async (req, res) => {
     }
   }
   await pool.query(
-    `UPDATE fournisseurs SET type=$1, en_ligne=$2, url=$3, recuperation=$4, note=$5, automatise=$6, modifie_main=TRUE WHERE id=$7`,
+    `UPDATE fournisseurs SET type=$1, en_ligne=$2, url=$3, recuperation=$4, note=$5, automatise=$6, ecriture_auto=$8, modifie_main=TRUE WHERE id=$7`,
     [b.type === 'recurrent' ? 'recurrent' : 'ponctuel', b.en_ligne === '1',
       url, ['email', 'api', 'portail', 'non'].includes(b.recuperation) ? b.recuperation : null,
-      (b.note || '').trim() || null, b.automatise === '1', id]);
+      (b.note || '').trim() || null, b.automatise === '1', id, b.ecriture_auto === '1']);
+  if (b.ecriture_auto === '1') await releves.rapprocher();
   flash(req, 'Fournisseur mis à jour.');
   res.redirect('/fournisseurs');
 });

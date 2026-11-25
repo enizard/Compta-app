@@ -1,5 +1,5 @@
 <%- include('partials/header') %>
-<% const MODES = [['email', 'Email → factures@', 'Factures reçues sur factures@simpleandnew.com'], ['session', 'Session annuelle', 'Site avec identifiant : justificatifs téléchargés une fois par an'], ['auto', 'Sans facture', 'Écriture automatique sans facture (URSSAF, impôts…)'], ['scan', 'Ticket à scanner', 'Ticket ou facture papier à scanner'], ['', 'À définir', 'Pas encore décidé']]; %>
+<% const MODES = [['email', 'Email → factures@', 'Factures reçues sur factures@simpleandnew.com'], ['session', 'Session annuelle', 'Site avec identifiant : justificatifs téléchargés une fois par an'], ['auto', 'Sans facture', 'Écriture automatique sans facture (URSSAF, impôts…)'], ['scan', 'À scanner', 'Ticket ou facture papier à scanner'], ['', 'À définir', 'Pas encore décidé']]; %>
 <% const RECUP = { email: 'Automatisable — factures reçues par e-mail', api: 'Automatisable — API / connecteur', portail: 'Manuel — téléchargement sur le site', non: 'Pas de facture en ligne' }; %>
 <div class="head">
   <h1>Fournisseurs</h1>

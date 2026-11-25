@@ -90,3 +90,7 @@ html.embed main { max-width: none; padding: 16px 20px; }
 .code { font-size: 18px; letter-spacing: 1px; background: #eef3ff; padding: 2px 8px; border-radius: 4px; }
 .flash.recu { background: #eef3ff; color: #1d2433; }
 .flash.recu form { margin-left: 8px; }
+fieldset.bloc { border: 1px solid #e2e5ea; border-radius: 8px; padding: 8px 16px 4px; margin: 6px 0 14px; }
+fieldset.bloc legend { font-weight: 700; font-size: 15px; padding: 0 6px; color: #1d2433; }
+fieldset.bloc > .grid { gap: 0 16px; }
+label[hidden] { display: none !important; }

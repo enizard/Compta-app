@@ -55,6 +55,7 @@
     <% const ligne = typeof locals.ligne !== 'undefined' ? locals.ligne : null; %>
     <% if (ligne) { %><input type="hidden" name="ligne_id" value="<%= ligne.id %>">
       <div class="wide flash">Écriture créée à partir de la ligne de relevé « <%= ligne.libelle %> » — elle y sera rapprochée.</div><% } %>
+    <fieldset class="wide bloc"><legend>Facture</legend><div class="grid">
     <label>Société *
       <select name="entite_id" required>
         <option value="">—</option>
@@ -77,25 +78,43 @@
     </label>
     <label class="wide">Libellé *<input name="libelle" value="<%= op.libelle || '' %>" required></label>
     <label>Tiers (client / fournisseur)<input name="tiers" value="<%= op.tiers || '' %>"></label>
+    <label>N° de facture<input name="numero_facture" value="<%= op.numero_facture || '' %>"></label>
     <label>Montant TTC (€) *<input name="montant_ttc" inputmode="decimal" value="<%= op.montant_ttc != null ? String(op.montant_ttc).replace('.', ',') : '' %>" required></label>
     <label>dont TVA (€)<input name="tva" inputmode="decimal" value="<%= op.tva != null && Number(op.tva) ? String(op.tva).replace('.', ',') : '' %>"></label>
     <label>Montant HT (€)<input id="ht" readonly tabindex="-1" class="readonly"></label>
-    <label>N° de facture<input name="numero_facture" value="<%= op.numero_facture || '' %>"></label>
-    <label>Date de paiement<input type="date" name="date_paiement" value="<%= op.date_paiement || '' %>"></label>
-    <% if (op.recu_nom) { %><div><small>Reçu de paiement : <a href="/operations/<%= op.id %>/recu" target="_blank"><%= op.recu_nom %></a></small></div><% } %>
-    <label>Montant débité (€) <small class="muted">si différent : crédit, avoir…</small><input name="montant_debite" inputmode="decimal" value="<%= op.montant_debite != null ? String(op.montant_debite).replace('.', ',') : '' %>"></label>
-    <label>Paiement
-      <select name="paiement">
-        <option value="">Je ne sais plus (déterminé au rapprochement bancaire)</option>
-        <% PAIEMENTS.forEach(p => { %><option value="<%= p %>" <%= op.paiement === p ? 'selected' : '' %>><%= p %></option><% }) %>
+    <label>Livraison
+      <select name="livraison">
+        <option value="">—</option>
+        <% LIVRAISONS.forEach(x => { %><option <%= op.livraison === x ? 'selected' : '' %>><%= x %></option><% }) %>
       </select>
     </label>
+    <% if (depot) { %><div><small class="muted">Justificatif : <%= depot.nom %> (joint automatiquement)</small></div><% } else { %>
+    <label>Justificatif (PDF, image — 10 Mo max)
+      <input type="file" name="justificatif" accept=".pdf,image/*">
+      <% if (op.justif_nom) { %>
+        <small>Actuel : <a href="/operations/<%= op.id %>/justificatif" target="_blank"><%= op.justif_nom %></a>
+        — <label class="inline"><input type="checkbox" name="suppr_justif" value="1"> supprimer</label></small>
+      <% } %>
+    </label>
+    <% } %>
+    </div></fieldset>
+    <fieldset class="wide bloc"><legend>Règlement</legend><div class="grid">
     <label>Règlement
       <select name="reglement">
         <option value="">—</option>
         <% REGLEMENTS.forEach(x => { %><option <%= op.reglement === x ? 'selected' : '' %>><%= x %></option><% }) %>
       </select>
     </label>
+    <label>Paiement
+      <select name="paiement">
+        <option value="">Je ne sais plus (déterminé au rapprochement bancaire)</option>
+        <% PAIEMENTS.forEach(p => { %><option value="<%= p %>" <%= op.paiement === p ? 'selected' : '' %>><%= p %></option><% }) %>
+      </select>
+    </label>
+    <label id="champCarte">Carte utilisée<input name="carte" value="<%= op.carte || '' %>" placeholder="ex. VISA **** 1234"></label>
+    <label>Date de paiement<input type="date" name="date_paiement" value="<%= op.date_paiement || '' %>"></label>
+    <label>Montant débité (€) <small class="muted">si différent : crédit, avoir…</small><input name="montant_debite" inputmode="decimal" value="<%= op.montant_debite != null ? String(op.montant_debite).replace('.', ',') : '' %>"></label>
+    <% if (op.recu_nom) { %><div><small>Reçu de paiement : <a href="/operations/<%= op.id %>/recu" target="_blank"><%= op.recu_nom %></a></small></div><% } %>
     <div class="wide">
       <label class="inline"><input type="checkbox" name="plusieurs_fois" value="1" id="plusieurs" <%= op.reglements && op.reglements.length ? 'checked' : '' %>> Réglé en plusieurs fois</label>
       <div id="echeancier" <%= op.reglements && op.reglements.length ? '' : 'hidden' %>>
@@ -117,22 +136,7 @@
         <small class="muted">— le statut de règlement est calculé à partir de ces paiements.</small>
       </div>
     </div>
-    <label>Livraison
-      <select name="livraison">
-        <option value="">—</option>
-        <% LIVRAISONS.forEach(x => { %><option <%= op.livraison === x ? 'selected' : '' %>><%= x %></option><% }) %>
-      </select>
-    </label>
-    <label>Carte utilisée<input name="carte" value="<%= op.carte || '' %>" placeholder="ex. VISA **** 1234"></label>
-    <% if (depot) { %><div><small class="muted">Justificatif : <%= depot.nom %> (joint automatiquement)</small></div><% } else { %>
-    <label>Justificatif (PDF, image — 10 Mo max)
-      <input type="file" name="justificatif" accept=".pdf,image/*">
-      <% if (op.justif_nom) { %>
-        <small>Actuel : <a href="/operations/<%= op.id %>/justificatif" target="_blank"><%= op.justif_nom %></a>
-        — <label class="inline"><input type="checkbox" name="suppr_justif" value="1"> supprimer</label></small>
-      <% } %>
-    </label>
-    <% } %>
+    </div></fieldset>
     <label class="wide">Notes<textarea name="notes" rows="2"><%= op.notes || '' %></textarea></label>
     <div class="wide actions">
       <button>Enregistrer</button>
@@ -176,6 +180,12 @@
       });
     }
     f.entite_id.addEventListener('change', majMoyens); majMoyens();
+    // « Carte utilisée » : seulement si une carte a été reconnue ou si le paiement est par carte.
+    function majCarte() {
+      const carte = ['CB CIC', 'AMEX'].includes(f.paiement.value) || f.carte.value.trim() !== '';
+      document.getElementById('champCarte').hidden = !carte;
+    }
+    f.paiement.addEventListener('change', majCarte); majCarte();
     const ech = document.getElementById('echeancier'), corps = document.getElementById('lignesReg');
     function reste() {
       const tot = [...corps.querySelectorAll('input[name="reg_montant[]"]')].reduce((a, i) => a + num(i.value), 0);

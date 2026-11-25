@@ -1067,12 +1067,12 @@ app.post('/fournisseurs/:id', requireAuth, async (req, res) => {
 });
 
 // Mode de récupération des factures, choisi par boutons dans la liste des fournisseurs.
-const MODES = ['email', 'session', 'auto', 'scan'];
+const MODES = ['email', 'automatique', 'session', 'auto', 'scan'];
 app.post('/fournisseurs/:id/mode', requireAuth, async (req, res) => {
   const id = Number(req.params.id);
   const mode = MODES.includes((req.body || {}).mode) ? req.body.mode : null;
   await pool.query(`UPDATE fournisseurs SET mode=$1, recup_annuelle = COALESCE($1 = 'session', FALSE), ecriture_auto = COALESCE($1 = 'auto', FALSE),
-      automatise = CASE WHEN $1 = 'email' THEN TRUE ELSE automatise END, modifie_main=TRUE WHERE id=$2`, [mode, id]);
+      automatise = CASE WHEN $1 IN ('email', 'automatique') THEN TRUE ELSE automatise END, modifie_main=TRUE WHERE id=$2`, [mode, id]);
   // Opérations créées d'office (session annuelle sans justificatif, écriture sans facture) qui ne correspondent plus au mode :
   // elles redeviennent des débits à rapprocher.
   const { rows } = await pool.query(`SELECT id FROM operations WHERE fournisseur_id=$1 AND justif_data IS NULL AND (

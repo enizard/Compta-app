@@ -17,6 +17,22 @@
   <p class="muted">Transférez-y automatiquement les e-mails de factures (filtres Gmail) : chaque facture est lue et l'opération créée sans intervention ; la société et le moyen de paiement sont déterminés au rapprochement bancaire.</p>
 <% } %>
 
+<div class="grid" style="grid-template-columns: 1fr 1fr; align-items: start;">
+  <div class="card">
+    <h2>Arrivent déjà sur la boîte <span class="muted">(<%= recus.length %>)</span></h2>
+    <% if (!recus.length) { %><p class="muted">Aucun pour l'instant.</p><% } else { %>
+    <ul><% recus.forEach(f => { %><li><strong><%= f.nom %></strong> <small class="muted">— dernière facture reçue le <%= f.derniere.toLocaleDateString('fr-FR', { timeZone: 'Europe/Paris' }) %></small></li><% }) %></ul>
+    <% } %>
+  </div>
+  <div class="card">
+    <h2>À basculer sur la boîte <span class="muted">(<%= aBasculer.length %>)</span></h2>
+    <p class="muted"><small>Fournisseurs en mode « Email → factures@ » dont aucune facture n'est encore arrivée ici : transfert ou adresse de facturation à mettre en place.</small></p>
+    <% if (!aBasculer.length) { %><p class="muted">Aucun.</p><% } else { %>
+    <ul><% aBasculer.forEach(f => { %><li><strong><%= f.nom %></strong></li><% }) %></ul>
+    <% } %>
+  </div>
+</div>
+
 <% const confs = mails.filter(m => m.statut === 'confirmation'); %>
 <% if (confs.length) { %>
   <div class="card">

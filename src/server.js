@@ -1124,7 +1124,14 @@ app.get('/boite', requireAuth, async (req, res) => {
          WHERE d.lot_id = ANY(m.lot_ids)) AS ops,
       (SELECT MIN(d.id) FROM depots d WHERE d.lot_id = ANY(m.lot_ids) AND d.statut = 'a_valider') AS a_valider
     FROM emails_recus m ORDER BY m.recu_le DESC NULLS LAST, m.id DESC LIMIT 200`);
-  res.render('boite', { mails, etat: boite.etat(), active: boite.active() });
+  // Fournisseurs en mode « Email → factures@ » : ceux dont une facture est déjà arrivée par la boîte, et ceux à basculer.
+  const { rows: fourn } = await pool.query(`
+    SELECT f.id, f.nom,
+      (SELECT MAX(l.created_at) FROM operations o JOIN depots d ON d.operation_id = o.id JOIN lots l ON l.id = d.lot_id
+        WHERE o.fournisseur_id = f.id AND l.source = 'email') AS derniere
+    FROM fournisseurs f WHERE f.mode = 'email' ORDER BY f.nom`);
+  res.render('boite', { mails, etat: boite.etat(), active: boite.active(),
+    recus: fourn.filter((f) => f.derniere), aBasculer: fourn.filter((f) => !f.derniere) });
 });
 
 app.post('/boite/relever', requireAuth, async (req, res) => {

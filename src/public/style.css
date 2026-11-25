@@ -166,3 +166,22 @@ tr.cliquable:hover { background: linear-gradient(90deg, #fbe4cf, #fdf3e6); box-s
 .segments.modes button:last-child { border-right: 0; }
 .segments.modes button:hover { background: #f6ecdf; }
 .segments.modes button.on { background: var(--accent); color: #fff; }
+main:has(table.fourn) { max-width: 1560px; }
+table.fourn { table-layout: fixed; width: 100%; }
+table.fourn th:nth-child(1) { width: 22%; }
+table.fourn th:nth-child(2) { width: 9%; }
+table.fourn th:nth-child(3) { width: 5%; }
+table.fourn th:nth-child(4) { width: 8%; }
+table.fourn th:nth-child(5) { width: 7%; }
+table.fourn th:nth-child(6) { width: 8%; }
+table.fourn th:nth-child(7) { width: 7%; }
+table.fourn th:nth-child(8) { width: 31%; }
+table.fourn th:nth-child(9) { width: 3%; }
+table.fourn td { vertical-align: middle; padding-top: 6px; padding-bottom: 6px; }
+table.fourn td.fn strong { display: block; }
+table.fourn td.fn small { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+table.fourn td.soc small, table.fourn td.fact small { line-height: 1.3; }
+table.fourn td.fact a { text-decoration: none; margin-left: 4px; }
+table.fourn .segments.modes { display: flex; width: 100%; }
+table.fourn .segments.modes button { flex: 1 1 auto; padding: 4px 4px; font-size: 11.5px; }
+table.fourn a.edit { text-decoration: none; font-size: 15px; }

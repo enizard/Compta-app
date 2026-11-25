@@ -1,5 +1,6 @@
 <%- include('partials/header') %>
 <% const MODES = [['email', 'Email → factures@', 'Factures reçues sur factures@simpleandnew.com'], ['automatique', 'Automatique', 'Factures récupérées automatiquement (API, connecteur…)'], ['session', 'Session annuelle', 'Site avec identifiant : justificatifs téléchargés une fois par an'], ['auto', 'Sans facture', 'Écriture automatique sans facture (URSSAF, impôts…)'], ['rien', 'Rien à faire', 'Aucun justificatif à fournir (salaires…)'], ['scan', 'À scanner', 'Ticket ou facture papier à scanner'], ['', 'À définir', 'Pas encore décidé']]; %>
+<% const RECUP_COURT = { email: 'Par e-mail', api: 'API', portail: 'Sur le site', non: 'Pas en ligne' }; %>
 <% const RECUP = { email: 'Automatisable — factures reçues par e-mail', api: 'Automatisable — API / connecteur', portail: 'Manuel — téléchargement sur le site', non: 'Pas de facture en ligne' }; %>
 <div class="head">
   <h1>Fournisseurs</h1>
@@ -9,37 +10,36 @@
   <div class="flash">Analyse en cours ou à lancer : <%= enAttente.lignes %> ligne(s) de relevé et <%= enAttente.fourn %> fournisseur(s) pas encore classés.</div>
   <script>setTimeout(() => location.reload(), 8000);</script>
 <% } %>
-<p class="muted">Les fournisseurs sont détectés dans les relevés et les tickets. « Factures manquantes » = débits du relevé sans facture jointe. Cliquez sur « modifier » pour corriger un classement : il ne sera plus changé automatiquement.</p>
+<p class="muted">Les fournisseurs sont détectés dans les relevés et les tickets. « Factures manquantes » = débits du relevé sans facture jointe. Cliquez sur ✎ pour corriger un classement : il ne sera plus changé automatiquement.</p>
 
 <% function bloc(titre, liste, aide) { %>
   <h2><%= titre %> <span class="muted">(<%= liste.length %>)</span></h2>
   <% if (aide) { %><p class="muted"><%= aide %></p><% } %>
   <% if (!liste.length) { %><p class="muted">Aucun.</p><% return; } %>
-  <table>
-    <thead><tr><th>Fournisseur</th><th>Société(s)</th><th class="r">Opérations</th><th class="r">Mois</th><th class="r">Total</th><th>Dernier</th><th class="r">Factures manquantes</th><th>Factures</th><th>Mode de récupération</th><th></th></tr></thead>
+  <table class="fourn">
+    <thead><tr><th>Fournisseur</th><th>Société(s)</th><th class="r">Opér.</th><th class="r">Total</th><th>Dernier</th><th class="r">Manquantes</th><th>Factures</th><th>Mode de récupération</th><th></th></tr></thead>
     <tbody>
     <% liste.forEach(f => { %>
       <tr>
-        <td><strong><%= f.nom %></strong><% if (f.automatise) { %> <span class="badge auto">Automatisé</span><% } %><% if (f.ecriture_auto) { %> <span class="badge auto">Écriture auto · sans facture</span><% } %><% if (f.recup_annuelle) { %> <span class="badge auto">Session annuelle</span><% } %><% if (f.note) { %><br><small class="muted"><%= f.note %></small><% } %></td>
-        <td><small><%= f.societes || '' %></small></td>
-        <td class="r"><%= f.nb %></td>
-        <td class="r"><%= f.mois %></td>
+        <td class="fn"><strong><%= f.nom %></strong><% if (f.note) { %><small class="muted" title="<%= f.note %>"><%= f.note %></small><% } %></td>
+        <td class="soc"><small><%= f.societes || '' %></small></td>
+        <td class="r" title="sur <%= f.mois %> mois"><%= f.nb %></td>
         <td class="r"><%= fmt(f.total) %></td>
         <td><%= f.dernier ? f.dernier.toLocaleDateString('fr-FR') : '' %></td>
-        <td class="r <%= f.manquantes && !f.ecriture_auto && !f.recup_annuelle ? 'neg' : 'pos' %>"><%= f.ecriture_auto ? 'sans objet' : f.recup_annuelle ? (f.manquantes ? f.manquantes + ' en session annuelle' : '✓') : (f.manquantes || '✓') %></td>
-        <td>
-          <% if (f.url) { %><a href="<%= f.url %>" target="_blank" rel="noopener">Espace factures ↗</a><br><% } %>
-          <small><%= f.recuperation ? RECUP[f.recuperation] : (f.classe_le ? '' : 'à analyser…') %></small>
+        <td class="r <%= f.manquantes && !f.ecriture_auto && !f.recup_annuelle && f.mode !== 'rien' ? 'neg' : 'pos' %>"><%= f.ecriture_auto || f.mode === 'rien' ? '—' : f.recup_annuelle ? (f.manquantes ? f.manquantes + ' (session)' : '✓') : (f.manquantes || '✓') %></td>
+        <td class="fact">
+          <small><%= f.recuperation ? RECUP_COURT[f.recuperation] : (f.classe_le ? '' : 'à analyser…') %></small>
+          <% if (f.url) { %><a href="<%= f.url %>" target="_blank" rel="noopener" title="Espace factures">↗</a><% } %>
         </td>
         <td>
           <span class="segments modes" data-action="/fournisseurs/<%= f.id %>/mode">
             <% MODES.forEach(([k, lib, aide]) => { %><button type="button" class="<%= (f.mode || '') === k ? 'on' : '' %>" data-mode="<%= k %>" title="<%= aide %>" onclick="choisirMode(this)"><%= lib %></button><% }) %>
           </span>
         </td>
-        <td><a href="#" onclick="document.getElementById('ed<%= f.id %>').hidden = !document.getElementById('ed<%= f.id %>').hidden; return false;">modifier</a></td>
+        <td><a href="#" class="edit" title="Modifier" onclick="document.getElementById('ed<%= f.id %>').hidden = !document.getElementById('ed<%= f.id %>').hidden; return false;">✎</a></td>
       </tr>
       <tr id="ed<%= f.id %>" hidden>
-        <td colspan="10">
+        <td colspan="9">
           <form method="post" action="/fournisseurs/<%= f.id %>" class="grid">
             <label>Nom (un nom existant fusionne les deux)<input name="nom" value="<%= f.nom %>"></label>
             <label>Type

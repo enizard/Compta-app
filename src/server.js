@@ -1067,6 +1067,26 @@ app.post('/fournisseurs/:id', requireAuth, async (req, res) => {
   res.redirect('/fournisseurs');
 });
 
+// Case « Session annuelle » cochée / décochée directement dans la liste des fournisseurs.
+app.post('/fournisseurs/:id/session', requireAuth, async (req, res) => {
+  const oui = req.body.recup_annuelle === '1';
+  await pool.query('UPDATE fournisseurs SET recup_annuelle=$1, modifie_main=TRUE WHERE id=$2', [oui, req.params.id]);
+  // Décoché : les opérations encore en attente redeviennent des débits à rapprocher.
+  if (!oui) {
+    const { rows } = await pool.query(
+      'SELECT id FROM operations WHERE fournisseur_id=$1 AND justif_attendu AND justif_data IS NULL', [req.params.id]);
+    const ids = rows.map((r) => r.id);
+    if (ids.length) {
+      await pool.query('UPDATE lignes SET operation_id=NULL WHERE operation_id = ANY($1)', [ids]);
+      await pool.query('DELETE FROM reglements WHERE operation_id = ANY($1)', [ids]);
+      await pool.query('DELETE FROM operations WHERE id = ANY($1)', [ids]);
+    }
+  } else {
+    await releves.rapprocher();
+  }
+  res.redirect('/fournisseurs');
+});
+
 // ---------- session annuelle de téléchargement (sites avec identifiant) ----------
 app.get('/session-annuelle', requireAuth, async (req, res) => {
   const { rows } = await pool.query(`

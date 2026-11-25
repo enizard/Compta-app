@@ -15,7 +15,7 @@
   <% if (aide) { %><p class="muted"><%= aide %></p><% } %>
   <% if (!liste.length) { %><p class="muted">Aucun.</p><% return; } %>
   <table>
-    <thead><tr><th>Fournisseur</th><th>Société(s)</th><th class="r">Opérations</th><th class="r">Mois</th><th class="r">Total</th><th>Dernier</th><th class="r">Factures manquantes</th><th>Factures</th><th></th></tr></thead>
+    <thead><tr><th>Fournisseur</th><th>Société(s)</th><th class="r">Opérations</th><th class="r">Mois</th><th class="r">Total</th><th>Dernier</th><th class="r">Factures manquantes</th><th>Factures</th><th>Session annuelle</th><th></th></tr></thead>
     <tbody>
     <% liste.forEach(f => { %>
       <tr>
@@ -30,10 +30,15 @@
           <% if (f.url) { %><a href="<%= f.url %>" target="_blank" rel="noopener">Espace factures ↗</a><br><% } %>
           <small><%= f.recuperation ? RECUP[f.recuperation] : (f.classe_le ? '' : 'à analyser…') %></small>
         </td>
+        <td>
+          <form method="post" action="/fournisseurs/<%= f.id %>/session" class="inline">
+            <label class="inline" title="Site avec identifiant : justificatifs téléchargés une fois par an"><input type="checkbox" name="recup_annuelle" value="1" <%= f.recup_annuelle ? 'checked' : '' %> onchange="this.form.submit()"> Oui</label>
+          </form>
+        </td>
         <td><a href="#" onclick="document.getElementById('ed<%= f.id %>').hidden = !document.getElementById('ed<%= f.id %>').hidden; return false;">modifier</a></td>
       </tr>
       <tr id="ed<%= f.id %>" hidden>
-        <td colspan="9">
+        <td colspan="10">
           <form method="post" action="/fournisseurs/<%= f.id %>" class="grid">
             <label>Nom (un nom existant fusionne les deux)<input name="nom" value="<%= f.nom %>"></label>
             <label>Type

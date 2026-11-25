@@ -13,7 +13,7 @@ async function idFournisseur(nom) {
   const k = cle(nom);
   if (!k) return null;
   const { rows } = await pool.query(
-    `INSERT INTO fournisseurs (nom, cle) VALUES ($1, $2)
+    `INSERT INTO fournisseurs (nom, cle, ecriture_auto) VALUES ($1, $2, $2 ~ '(^| )(urssaf|dgfip|sie|impots|tresor public)( |$)')
      ON CONFLICT (cle) DO UPDATE SET cle = EXCLUDED.cle RETURNING id`, [String(nom).trim().slice(0, 80), k]);
   return rows[0].id;
 }

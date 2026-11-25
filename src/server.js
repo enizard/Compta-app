@@ -431,8 +431,16 @@ app.post('/depot', requireAuth, upload.array('fichier', 50), async (req, res) =>
     const hash = crypto.createHash('sha256').update(f.buffer).digest('hex');
     if (vus.has(hash)) { dejaMis.push(`${f.originalname} (en double dans ce dépôt)`); continue; }
     vus.add(hash);
-    const { rows: ex } = await pool.query(
-      "SELECT nom, created_at FROM lots WHERE hash=$1 AND statut NOT IN ('erreur','interrompu') ORDER BY id LIMIT 1", [hash]);
+    const { rows: ex } = await pool.query(`
+      SELECT l.id, l.nom, l.created_at, l.statut,
+        EXISTS (SELECT 1 FROM depots d WHERE d.lot_id = l.id AND d.statut = 'enregistre')
+          OR EXISTS (SELECT 1 FROM releves r WHERE r.lot_id = l.id) AS enregistre,
+        EXISTS (SELECT 1 FROM depots d WHERE d.lot_id = l.id AND d.statut = 'a_valider') AS a_valider
+      FROM lots l WHERE l.hash=$1 AND l.statut NOT IN ('erreur','interrompu') ORDER BY l.id DESC LIMIT 1`, [hash]);
+    // Même fichier pas encore validé (ou en cours de lecture) : on rouvre sa fenêtre au lieu de le refuser.
+    if (ex[0] && !ex[0].enregistre && (ex[0].a_valider || ex[0].statut === 'en_cours')) { ids.push(ex[0].id); continue; }
+    // Déposé mais jamais enregistré (tout ignoré) : on le relit.
+    if (ex[0] && !ex[0].enregistre) { await pool.query('UPDATE lots SET hash=NULL WHERE id=$1', [ex[0].id]); ex.length = 0; }
     if (ex[0]) {
       const quand = ex[0].created_at.toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short', timeZone: 'Europe/Paris' });
       dejaMis.push(`${f.originalname} (déjà déposé le ${quand}${ex[0].nom !== f.originalname ? ` sous le nom ${ex[0].nom}` : ''})`);

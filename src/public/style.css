@@ -135,7 +135,6 @@ a { color: var(--accent); }
 .card { box-shadow: 0 1px 3px rgba(74, 52, 40, .06); }
 th { background: var(--entete); color: #6b5442; }
 th, td { border-bottom-color: #efe5d7; }
-tbody tr:nth-child(even) { background: var(--zebre); }
 input, select, textarea { border-color: #dccbb5; background: #fffdfa; color: var(--texte); }
 input:focus, select:focus, textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(181, 83, 44, .15); }
 input.readonly { background: #f4ece1; color: var(--doux); }
@@ -160,3 +159,4 @@ fieldset.bloc legend { color: var(--accent-fonce); }
 .modale-boite { background: var(--fond); }
 tr.cliquable:hover { background: linear-gradient(90deg, #fbe4cf, #fdf3e6); box-shadow: inset 4px 0 0 var(--accent); }
 .code { background: var(--accent-clair); }
+.retour { margin: 0 0 8px; } .retour a { font-weight: 600; }

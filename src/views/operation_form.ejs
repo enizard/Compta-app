@@ -10,6 +10,9 @@
     <% } %>
   </div>
 <% } %>
+<% if (!depot) { %>
+  <p class="retour"><a href="/operations" onclick="if (document.referrer.includes('/operations') && !document.referrer.includes('/edit')) { history.back(); return false; }">← Retour à la liste</a></p>
+<% } %>
 <div class="card">
   <% const position = typeof locals.position !== 'undefined' ? locals.position : null; %>
   <h1><%= op.id ? 'Modifier l\'opération' : (depot ? 'Vérifier et enregistrer' : 'Nouvelle opération') %></h1>

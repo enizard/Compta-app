@@ -162,6 +162,7 @@ async function init() {
       appris_le TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
     ALTER TABLE lignes ADD COLUMN IF NOT EXISTS ecart_accepte BOOLEAN NOT NULL DEFAULT FALSE;
+    ALTER TABLE fournisseurs ADD COLUMN IF NOT EXISTS automatise BOOLEAN NOT NULL DEFAULT FALSE;
     ALTER TABLE operations ADD COLUMN IF NOT EXISTS fournisseur_id INTEGER REFERENCES fournisseurs(id) ON DELETE SET NULL;
     CREATE TABLE IF NOT EXISTS reglements (
       id SERIAL PRIMARY KEY,

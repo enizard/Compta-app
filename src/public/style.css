@@ -160,3 +160,4 @@ fieldset.bloc legend { color: var(--accent-fonce); }
 tr.cliquable:hover { background: linear-gradient(90deg, #fbe4cf, #fdf3e6); box-shadow: inset 4px 0 0 var(--accent); }
 .code { background: var(--accent-clair); }
 .retour { margin: 0 0 8px; } .retour a { font-weight: 600; }
+.badge.auto { background: #137a3a; font-weight: 600; }

@@ -411,6 +411,10 @@ async function creerOperationsAuto(lotId) {
     await releves.rapprocher();
     fournisseurs.mettreAJour();
   }
+  // Fournisseurs dont les factures arrivent par e-mail : marqués « Automatisé ».
+  await pool.query(`UPDATE fournisseurs f SET automatise = TRUE
+    FROM depots d JOIN operations o ON o.id = d.operation_id
+    WHERE d.lot_id = $1 AND o.fournisseur_id = f.id AND NOT f.automatise`, [lotId]);
   // Statut de l'e-mail d'origine, sur l'ensemble de ses pièces jointes.
   await pool.query(`UPDATE emails_recus m SET statut = CASE
       WHEN EXISTS (SELECT 1 FROM lots l WHERE l.id = ANY(m.lot_ids) AND l.statut = 'en_cours') THEN 'en_cours'
@@ -974,6 +978,9 @@ app.post('/releves/:id/supprimer', requireAuth, async (req, res) => {
 
 // ---------- fournisseurs ----------
 app.get('/fournisseurs', requireAuth, async (req, res) => {
+  await pool.query(`UPDATE fournisseurs f SET automatise = TRUE
+    FROM depots d JOIN lots l ON l.id = d.lot_id AND l.source = 'email' JOIN operations o ON o.id = d.operation_id
+    WHERE o.fournisseur_id = f.id AND NOT f.automatise AND NOT f.modifie_main`);
   const { rows } = await pool.query(`
     WITH mvts AS (
       SELECT fournisseur_id, date_op, ABS(montant) AS m, id AS ligne_id, operation_id
@@ -1038,10 +1045,10 @@ app.post('/fournisseurs/:id', requireAuth, async (req, res) => {
     }
   }
   await pool.query(
-    `UPDATE fournisseurs SET type=$1, en_ligne=$2, url=$3, recuperation=$4, note=$5, modifie_main=TRUE WHERE id=$6`,
+    `UPDATE fournisseurs SET type=$1, en_ligne=$2, url=$3, recuperation=$4, note=$5, automatise=$6, modifie_main=TRUE WHERE id=$7`,
     [b.type === 'recurrent' ? 'recurrent' : 'ponctuel', b.en_ligne === '1',
       url, ['email', 'api', 'portail', 'non'].includes(b.recuperation) ? b.recuperation : null,
-      (b.note || '').trim() || null, id]);
+      (b.note || '').trim() || null, b.automatise === '1', id]);
   flash(req, 'Fournisseur mis à jour.');
   res.redirect('/fournisseurs');
 });

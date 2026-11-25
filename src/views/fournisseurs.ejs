@@ -19,7 +19,7 @@
     <tbody>
     <% liste.forEach(f => { %>
       <tr>
-        <td><strong><%= f.nom %></strong><% if (f.note) { %><br><small class="muted"><%= f.note %></small><% } %></td>
+        <td><strong><%= f.nom %></strong><% if (f.automatise) { %> <span class="badge auto">Automatisé</span><% } %><% if (f.note) { %><br><small class="muted"><%= f.note %></small><% } %></td>
         <td><small><%= f.societes || '' %></small></td>
         <td class="r"><%= f.nb %></td>
         <td class="r"><%= f.mois %></td>
@@ -55,6 +55,7 @@
               </select>
             </label>
             <label>Lien espace factures<input name="url" value="<%= f.url || '' %>" placeholder="https://…"></label>
+            <label class="inline"><input type="checkbox" name="automatise" value="1" <%= f.automatise ? 'checked' : '' %>> Récupération automatisée</label>
             <label class="wide">Note<input name="note" value="<%= f.note || '' %>"></label>
             <div class="wide"><button>Enregistrer</button></div>
           </form>

@@ -28,7 +28,8 @@ Pour CHAQUE facture ou ticket distinct visible, extrais les informations. Répon
       // facture = facture d'achat (invoice) ; ticket = ticket de caisse détaillé ;
       // facturette = petit ticket du terminal de carte bancaire (« CARTE BANCAIRE », « TICKET CLIENT », montant, n° de carte masqué, sans détail d'articles) ;
       // recu = reçu / confirmation de paiement émis par le fournisseur (« Receipt », « Payment receipt », « Reçu de paiement »)
-    "numero_facture": string|null,     // numéro de facture imprimé (aussi rappelé sur un reçu), sinon null
+    "numero_facture": string|null,     // numéro du document tel qu'imprimé : n° de facture (« Facture n° », « Invoice number », « Réf. »),
+                                       // n° de ticket ou de transaction pour un ticket / une facturette, n° de facture rappelé sur un reçu ; null si absent
     "montant_paye": number|null,       // montant effectivement débité si différent du total (crédit, avoir, solde appliqué)
     "position": string|null,           // où se trouve ce ticket sur la page s'il y en a plusieurs (ex. "en haut à gauche")
     "mentions_manuscrites": string|null, // tout texte écrit à la main sur ce ticket, recopié tel quel

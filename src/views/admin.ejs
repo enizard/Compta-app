@@ -52,4 +52,20 @@
     <form method="post" action="/admin/categories" class="inline"><input name="nom" placeholder="Nouvelle catégorie" required> <button class="secondary">Ajouter</button></form>
   </div>
 </div>
+<div class="card">
+  <h3>Moyens de paiement par société</h3>
+  <form method="post" action="/admin/moyens">
+    <table>
+      <thead><tr><th>Société</th><% PAIEMENTS.forEach(p => { %><th class="center"><%= p %></th><% }) %></tr></thead>
+      <tbody>
+      <% entites.forEach(e => { %>
+        <tr><td><%= e.nom %></td>
+          <% PAIEMENTS.forEach(p => { %><td class="center"><input type="checkbox" name="m" value="<%= e.id %>|<%= p %>" <%= (moyens[e.id] || []).includes(p) ? 'checked' : '' %>></td><% }) %>
+        </tr>
+      <% }) %>
+      </tbody>
+    </table>
+    <p><button>Enregistrer</button></p>
+  </form>
+</div>
 <%- include('partials/footer') %>

@@ -54,12 +54,27 @@ app.use(async (req, res, next) => {
   res.locals.user = req.session.user || null;
   res.locals.fmt = fmt;
   res.locals.PAIEMENTS = PAIEMENTS;
+  res.locals.libPaiement = libPaiement;
   res.locals.LIVRAISONS = LIVRAISONS;
   res.locals.REGLEMENTS = REGLEMENTS;
   res.locals.flash = req.session.flash || null;
   delete req.session.flash;
   next();
 });
+
+// Libellé d'un moyen de paiement selon la société : « CB CIC LMF », « Virement / prélèvement CIC LMF »…
+const COURT = { 'Simple and New': 'SAN', 'SCI E NIZARD': 'SCI' };
+function libPaiement(p, entite) {
+  if (!p) return '';
+  if (!entite || ['Avance CC', 'Autre'].includes(p)) return p;
+  return `${p} ${COURT[entite] || entite}`;
+}
+async function moyensParEntite() {
+  const { rows } = await pool.query('SELECT entite_id, paiement FROM moyens_entite WHERE actif');
+  const m = {};
+  for (const r of rows) (m[r.entite_id] = m[r.entite_id] || []).push(r.paiement);
+  return m;
+}
 
 function flash(req, msg, type = 'ok') { req.session.flash = { msg, type }; }
 
@@ -82,7 +97,7 @@ async function refs() {
     pool.query('SELECT * FROM entites ORDER BY nom'),
     pool.query('SELECT * FROM categories ORDER BY nom'),
   ]);
-  return { entites: e.rows, categories: c.rows };
+  return { entites: e.rows, categories: c.rows, moyens: await moyensParEntite() };
 }
 
 function buildFilters(q) {
@@ -94,7 +109,7 @@ function buildFilters(q) {
   if (q.mois) { params.push(Number(q.mois)); where.push(`EXTRACT(MONTH FROM o.date_op) = $${params.length}`); }
   if (q.type === 'recette' || q.type === 'depense') { params.push(q.type); where.push(`o.type = $${params.length}`); }
   if (q.categorie) { params.push(Number(q.categorie)); where.push(`o.categorie_id = $${params.length}`); }
-  if (q.q) { params.push(`%${q.q}%`); where.push(`(o.libelle ILIKE $${params.length} OR o.tiers ILIKE $${params.length})`); }
+  if (q.q) { params.push(`%${q.q}%`); where.push(`(o.libelle ILIKE $${params.length} OR o.tiers ILIKE $${params.length} OR o.numero_facture ILIKE $${params.length})`); }
   return { sql: where.length ? 'WHERE ' + where.join(' AND ') : '', params };
 }
 
@@ -1050,11 +1065,11 @@ app.get('/export.csv', requireAuth, async (req, res) => {
     return /[;"\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t;
   };
   const num = (n) => Number(n).toFixed(2).replace('.', ',');
-  const lines = [['Société', 'Date', 'Type', 'Catégorie', 'Libellé', 'Tiers', 'Montant TTC', 'TVA', 'Montant HT', 'Paiement', 'Carte', 'Livraison', 'Règlement', 'Justificatif', 'Notes'].join(';')];
+  const lines = [['Société', 'Date', 'Type', 'Catégorie', 'Libellé', 'Tiers', 'N° facture', 'Montant TTC', 'TVA', 'Montant HT', 'Paiement', 'Carte', 'Livraison', 'Règlement', 'Justificatif', 'Notes'].join(';')];
   for (const r of rows) {
     const d = r.date_op;
     const date = `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
-    lines.push([r.entite || 'À déterminer', date, r.type === 'recette' ? 'Recette' : 'Dépense', r.categorie, r.libelle, r.tiers,
+    lines.push([r.entite || 'À déterminer', date, r.type === 'recette' ? 'Recette' : 'Dépense', r.categorie, r.libelle, r.tiers, r.numero_facture,
       num(r.montant_ttc), num(r.tva), num(r.montant_ttc - r.tva), r.paiement, r.carte, r.livraison, r.reglement, r.justif_nom ? 'oui' : 'non', r.notes].map(esc).join(';'));
   }
   res.set('Content-Type', 'text/csv; charset=utf-8');
@@ -1125,6 +1140,17 @@ app.post('/admin/users/:id/delete', requireAdmin, async (req, res) => {
 
 app.post('/admin/entites', requireAdmin, async (req, res) => {
   if (req.body.nom) await pool.query('INSERT INTO entites (nom) VALUES ($1) ON CONFLICT DO NOTHING', [req.body.nom.trim()]);
+  res.redirect('/admin');
+});
+
+app.post('/admin/moyens', requireAdmin, async (req, res) => {
+  const coches = new Set([].concat(req.body.m || []));
+  const { rows } = await pool.query('SELECT entite_id, paiement FROM moyens_entite');
+  for (const r of rows) {
+    await pool.query('UPDATE moyens_entite SET actif=$1 WHERE entite_id=$2 AND paiement=$3',
+      [coches.has(`${r.entite_id}|${r.paiement}`), r.entite_id, r.paiement]);
+  }
+  flash(req, 'Moyens de paiement mis à jour.');
   res.redirect('/admin');
 });
 

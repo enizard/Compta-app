@@ -171,6 +171,12 @@ async function init() {
       paiement TEXT
     );
     CREATE INDEX IF NOT EXISTS idx_reglements_op ON reglements(operation_id);
+    CREATE TABLE IF NOT EXISTS moyens_entite (
+      entite_id INTEGER NOT NULL REFERENCES entites(id) ON DELETE CASCADE,
+      paiement TEXT NOT NULL,
+      actif BOOLEAN NOT NULL DEFAULT TRUE,
+      PRIMARY KEY (entite_id, paiement)
+    );
     CREATE TABLE IF NOT EXISTS "session" (
       "sid" varchar NOT NULL COLLATE "default" PRIMARY KEY,
       "sess" json NOT NULL,
@@ -192,6 +198,11 @@ async function init() {
   for (const nom of ENTITES) {
     await pool.query('INSERT INTO entites (nom) VALUES ($1) ON CONFLICT DO NOTHING', [nom]);
   }
+  // Moyens de paiement par société (modifiables dans Administration). AMEX : Simple and New uniquement par défaut.
+  await pool.query(`INSERT INTO moyens_entite (entite_id, paiement, actif)
+    SELECT e.id, p.p, NOT (p.p = 'AMEX' AND e.nom <> 'Simple and New')
+    FROM entites e CROSS JOIN unnest($1::text[]) AS p(p)
+    ON CONFLICT DO NOTHING`, [['CB CIC', 'AMEX', 'Avance CC', 'Virement / prélèvement CIC', 'Autre']]);
 
   const cats = ['Ventes / honoraires', 'Loyers perçus', 'Achats', 'Sous-traitance', 'Loyers & charges',
     'Honoraires (comptable, avocat…)', 'Assurances', 'Banque & frais', 'Télécom & logiciels',

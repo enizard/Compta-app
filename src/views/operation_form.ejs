@@ -87,7 +87,7 @@
     <label>Paiement
       <select name="paiement">
         <option value="">Je ne sais plus (déterminé au rapprochement bancaire)</option>
-        <% PAIEMENTS.forEach(p => { %><option <%= op.paiement === p ? 'selected' : '' %>><%= p %></option><% }) %>
+        <% PAIEMENTS.forEach(p => { %><option value="<%= p %>" <%= op.paiement === p ? 'selected' : '' %>><%= p %></option><% }) %>
       </select>
     </label>
     <label>Règlement
@@ -106,7 +106,7 @@
             <tr>
               <td><input type="date" name="reg_date[]" value="<%= r.date_reg || '' %>"></td>
               <td><input name="reg_montant[]" inputmode="decimal" value="<%= r.montant != null ? String(r.montant).replace('.', ',') : '' %>"></td>
-              <td><select name="reg_paiement[]"><option value="">—</option><% PAIEMENTS.forEach(p => { %><option <%= r.paiement === p ? 'selected' : '' %>><%= p %></option><% }) %></select></td>
+              <td><select name="reg_paiement[]"><option value="">—</option><% PAIEMENTS.forEach(p => { %><option value="<%= p %>" <%= r.paiement === p ? 'selected' : '' %>><%= p %></option><% }) %></select></td>
               <td><button type="button" class="link" onclick="supprReg(this)">retirer</button></td>
             </tr>
             <% }) %>
@@ -161,6 +161,21 @@
       document.getElementById('ht').value = f.montant_ttc.value ? (ttc - tva).toFixed(2).replace('.', ',') : '';
     }
     f.montant_ttc.addEventListener('input', maj); f.tva.addEventListener('input', maj); maj();
+    // Moyens de paiement selon la société choisie.
+    const MOYENS = <%- JSON.stringify(moyens || {}) %>, NOMS = <%- JSON.stringify(Object.fromEntries(entites.map(e => [e.id, e.nom]))) %>;
+    const COURT = { 'Simple and New': 'SAN', 'SCI E NIZARD': 'SCI' };
+    function majMoyens() {
+      const id = f.entite_id.value, nom = NOMS[id], dispo = MOYENS[id];
+      document.querySelectorAll('select[name="paiement"], select[name="reg_paiement[]"]').forEach((sel) => {
+        [...sel.options].forEach((o) => {
+          if (!o.value) return;
+          const ok = !dispo || dispo.includes(o.value) || o.selected;
+          o.hidden = !ok; o.disabled = !ok;
+          o.textContent = nom && !['Avance CC', 'Autre'].includes(o.value) ? `${o.value} ${COURT[nom] || nom}` : o.value;
+        });
+      });
+    }
+    f.entite_id.addEventListener('change', majMoyens); majMoyens();
     const ech = document.getElementById('echeancier'), corps = document.getElementById('lignesReg');
     function reste() {
       const tot = [...corps.querySelectorAll('input[name="reg_montant[]"]')].reduce((a, i) => a + num(i.value), 0);
@@ -168,7 +183,7 @@
       document.getElementById('resteReg').textContent = ` Total payé : ${tot.toFixed(2).replace('.', ',')} € — reste à payer : ${r.toFixed(2).replace('.', ',')} €`;
     }
     document.getElementById('plusieurs').addEventListener('change', (e) => { ech.hidden = !e.target.checked; });
-    window.ajoutReg = () => { const tr = corps.rows[0].cloneNode(true); tr.querySelectorAll('input').forEach((i) => i.value = ''); tr.querySelector('select').value = ''; corps.appendChild(tr); };
+    window.ajoutReg = () => { const tr = corps.rows[0].cloneNode(true); tr.querySelectorAll('input').forEach((i) => i.value = ''); tr.querySelector('select').value = ''; corps.appendChild(tr); majMoyens(); };
     window.supprReg = (b) => { if (corps.rows.length > 1) b.closest('tr').remove(); else b.closest('tr').querySelectorAll('input').forEach((i) => i.value = ''); reste(); };
     corps.addEventListener('input', reste); f.montant_ttc.addEventListener('input', reste); reste();
   })();

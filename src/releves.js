@@ -93,13 +93,17 @@ async function rapprocher() {
 // Organismes sans facture (URSSAF, DGFIP…) : chaque ligne de relevé devient une écriture réglée, sans justificatif demandé.
 async function ecrituresSansFacture() {
   const { rows } = await pool.query(`
-    SELECT l.id, l.date_op, l.libelle, l.montant, c.entite_id, c.nature, c.banque, f.id AS fid, f.nom AS fnom, f.cle, f.ecriture_auto
+    SELECT l.id, l.date_op, l.libelle, l.montant, c.entite_id, c.nature, c.banque, f.id AS fid, f.nom AS fnom, f.cle, f.ecriture_auto, f.mode = 'rien' AS rien
     FROM lignes l JOIN comptes c ON c.id = l.compte_id JOIN fournisseurs f ON f.id = l.fournisseur_id
-    WHERE (f.ecriture_auto OR f.recup_annuelle) AND l.operation_id IS NULL AND l.total_carte IS NULL AND NOT l.ignoree AND c.entite_id IS NOT NULL`);
+    WHERE (f.ecriture_auto OR f.recup_annuelle OR f.mode = 'rien') AND l.operation_id IS NULL AND l.total_carte IS NULL AND NOT l.ignoree AND c.entite_id IS NOT NULL`);
   let n = 0;
   for (const l of rows) {
     // Écriture auto : catégorie de l'organisme. Récupération annuelle : catégorie habituelle du fournisseur.
-    const { rows: cat } = l.ecriture_auto
+    // Rien à faire (salaires…) : catégorie habituelle du fournisseur, sinon salaires.
+    const { rows: cat } = l.rien
+      ? await pool.query(`SELECT COALESCE((SELECT categorie_id FROM operations WHERE fournisseur_id=$1 AND categorie_id IS NOT NULL
+          ORDER BY date_op DESC LIMIT 1), (SELECT id FROM categories WHERE nom='Salaires & charges sociales')) AS id`, [l.fid])
+      : l.ecriture_auto
       ? await pool.query('SELECT id FROM categories WHERE nom=$1', [/urssaf/.test(l.cle) ? 'Salaires & charges sociales' : 'Impôts & taxes'])
       : await pool.query('SELECT categorie_id AS id FROM operations WHERE fournisseur_id=$1 AND categorie_id IS NOT NULL ORDER BY date_op DESC LIMIT 1', [l.fid]);
     const { rows: ins } = await pool.query(
@@ -108,9 +112,10 @@ async function ecrituresSansFacture() {
        VALUES ($1,$2,$3,$4,$5,$6,$7,0,$8,$9,'Déjà réglé',$2,$10,$11) RETURNING id`,
       [l.entite_id, l.date_op, Number(l.montant) < 0 ? 'depense' : 'recette', cat[0] ? cat[0].id : null, l.libelle, l.fnom,
         Math.abs(Number(l.montant)),
-        l.ecriture_auto ? 'Écriture automatique sans facture (justificatif : déclaration / avis de l\'organisme)'
+        l.rien ? 'Écriture automatique — rien à faire'
+          : l.ecriture_auto ? 'Écriture automatique sans facture (justificatif : déclaration / avis de l\'organisme)'
           : 'Justificatif à télécharger lors de la session annuelle',
-        paiementAttendu(l), l.fid, !l.ecriture_auto]);
+        paiementAttendu(l), l.fid, !l.ecriture_auto && !l.rien]);
     await pool.query('UPDATE lignes SET operation_id=$1 WHERE id=$2 AND operation_id IS NULL', [ins[0].id, l.id]);
     n++;
   }

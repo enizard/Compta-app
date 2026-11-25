@@ -1067,7 +1067,7 @@ app.post('/fournisseurs/:id', requireAuth, async (req, res) => {
 });
 
 // Mode de récupération des factures, choisi par boutons dans la liste des fournisseurs.
-const MODES = ['email', 'automatique', 'session', 'auto', 'scan'];
+const MODES = ['email', 'automatique', 'session', 'auto', 'rien', 'scan'];
 app.post('/fournisseurs/:id/mode', requireAuth, async (req, res) => {
   const id = Number(req.params.id);
   const mode = MODES.includes((req.body || {}).mode) ? req.body.mode : null;
@@ -1077,14 +1077,15 @@ app.post('/fournisseurs/:id/mode', requireAuth, async (req, res) => {
   // elles redeviennent des débits à rapprocher.
   const { rows } = await pool.query(`SELECT id FROM operations WHERE fournisseur_id=$1 AND justif_data IS NULL AND (
       (justif_attendu AND $2 IS DISTINCT FROM 'session')
-      OR (notes LIKE 'Écriture automatique sans facture%' AND $2 IS DISTINCT FROM 'auto'))`, [id, mode]);
+      OR (notes LIKE 'Écriture automatique sans facture%' AND $2 IS DISTINCT FROM 'auto')
+      OR (notes = 'Écriture automatique — rien à faire' AND $2 IS DISTINCT FROM 'rien'))`, [id, mode]);
   const ids = rows.map((r) => r.id);
   if (ids.length) {
     await pool.query('UPDATE lignes SET operation_id=NULL WHERE operation_id = ANY($1)', [ids]);
     await pool.query('DELETE FROM reglements WHERE operation_id = ANY($1)', [ids]);
     await pool.query('DELETE FROM operations WHERE id = ANY($1)', [ids]);
   }
-  if (mode === 'session' || mode === 'auto') await releves.rapprocher();
+  if (['session', 'auto', 'rien'].includes(mode)) await releves.rapprocher();
   if ((req.get('Accept') || '').includes('application/json')) return res.json({ ok: true, mode });
   res.redirect('/fournisseurs');
 });

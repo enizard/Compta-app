@@ -219,22 +219,35 @@ async function corrigerDepuisLigne(ligneId) {
 }
 
 // Justificatif déposé pour une opération créée en attente (session annuelle) : on complète cette opération.
-async function completerAttendu(r, doc) {
+// Opération créée d'office depuis le relevé (session annuelle, rien à faire) sans justificatif, correspondant à un document :
+// même montant (TTC ou débité), date à 10 jours près. Le fournisseur n'est pas exigé (le document peut le révéler
+// différemment de ce qu'on imaginait) ; à égalité, on préfère le même fournisseur.
+async function trouverProvisoire(montants, date, fournisseur) {
   const { idFournisseur } = require('./fournisseurs');
-  const fid = r.fournisseur ? await idFournisseur(r.fournisseur) : null;
-  const montants = [r.montant_ttc, r.montant_paye].filter(Boolean);
-  if (!fid || !montants.length || !r.date) return null;
+  montants = montants.map(Number).filter((m) => m > 0);
+  if (!montants.length || !date) return null;
+  const fid = fournisseur ? await idFournisseur(fournisseur) : null;
   const { rows } = await pool.query(`
-    SELECT o.id FROM operations o JOIN fournisseurs f ON f.id = o.fournisseur_id
-    WHERE o.justif_attendu AND o.fournisseur_id = $1 AND EXISTS (SELECT 1 FROM unnest($2::numeric[]) m WHERE ABS(o.montant_ttc - m) < 0.01)
-      AND ABS(o.date_op - $3::date) <= 10
-    ORDER BY ABS(o.date_op - $3::date) LIMIT 1`, [fid, montants, r.date]);
-  if (!rows[0]) return null;
-  await pool.query(`UPDATE operations SET justif_attendu = FALSE, justif_nom=$1, justif_type=$2, justif_data=$3,
-      tva = $4, numero_facture = COALESCE($5, numero_facture), date_op = $6,
-      notes = 'Justificatif récupéré lors de la session annuelle', updated_at = NOW() WHERE id = $7`,
-    [doc.nom, doc.mimetype, doc.data, r.tva || 0, r.numero_facture || null, r.date, rows[0].id]);
-  return rows[0].id;
+    SELECT o.id FROM operations o
+    WHERE o.justif_data IS NULL AND (o.justif_attendu OR o.notes LIKE 'Écriture automatique%')
+      AND EXISTS (SELECT 1 FROM unnest($1::numeric[]) m WHERE ABS(o.montant_ttc - m) < 0.01)
+      AND ABS(o.date_op - $2::date) <= 10
+    ORDER BY (o.fournisseur_id IS NOT DISTINCT FROM $3) DESC, ABS(o.date_op - $2::date) LIMIT 1`, [montants, date, fid]);
+  return rows[0] ? rows[0].id : null;
 }
 
-module.exports = { completerAttendu, trouverCompte, insererLignes, rapprocher, candidats, attribuerSocietes, ecarts, paiementAttendu, corrigerDepuisLigne, paiementDepuisDocument, appliquerCartes };
+// Document déposé (session annuelle ou scan) : complète l'opération provisoire au lieu d'en créer une autre.
+async function completerAttendu(r, doc) {
+  const id = await trouverProvisoire([r.montant_ttc, r.montant_paye].filter(Boolean), r.date, r.fournisseur);
+  if (!id) return null;
+  const { rows: cat } = r.categorie ? await pool.query('SELECT id FROM categories WHERE nom=$1', [r.categorie]) : { rows: [] };
+  await pool.query(`UPDATE operations SET justif_attendu = FALSE, justif_nom=$1, justif_type=$2, justif_data=$3,
+      tva = $4, numero_facture = COALESCE($5, numero_facture), date_op = $6, tiers = COALESCE($7, tiers),
+      categorie_id = COALESCE($8, categorie_id), notes = 'Justificatif déposé et rattaché à l''opération du relevé', updated_at = NOW()
+    WHERE id = $9`,
+    [doc.nom, doc.mimetype, doc.data, r.tva || 0, r.numero_facture || null, r.date, r.fournisseur || null, cat[0] ? cat[0].id : null, id]);
+  if (r.fournisseur) await require('./fournisseurs').lierOperation(id, r.fournisseur);
+  return id;
+}
+
+module.exports = { completerAttendu, trouverProvisoire, trouverCompte, insererLignes, rapprocher, candidats, attribuerSocietes, ecarts, paiementAttendu, corrigerDepuisLigne, paiementDepuisDocument, appliquerCartes };

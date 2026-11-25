@@ -761,6 +761,25 @@ app.post('/operations', requireAuth, upload.single('justificatif'), async (req, 
     const { rows } = await pool.query('SELECT nom, mimetype, data FROM depots WHERE id=$1', [depotId]);
     if (rows[0]) f = { nom: rows[0].nom, type: rows[0].mimetype, data: rows[0].data };
   }
+  // Justificatif d'un débit déjà enregistré d'office depuis le relevé (session annuelle, rien à faire) : on complète
+  // cette opération plutôt que d'en créer une seconde.
+  const provisoire = f && !req.body.ligne_id
+    ? await releves.trouverProvisoire([v[6], v[13]].filter(Boolean), v[1], v[5]) : null;
+  if (provisoire) {
+    await pool.query(`UPDATE operations SET entite_id=COALESCE($1, entite_id), date_op=$2, type=$3, categorie_id=COALESCE($4, categorie_id),
+        libelle=$5, tiers=COALESCE($6, tiers), tva=$7, notes=$8, carte=COALESCE($9, carte), livraison=$10,
+        numero_facture=COALESCE($11, numero_facture), justif_nom=$12, justif_type=$13, justif_data=$14, justif_attendu=FALSE, updated_at=NOW()
+      WHERE id=$15`,
+      [v[0], v[1], v[2], v[3], v[4], v[5], v[7], v[8] || 'Justificatif déposé et rattaché à l\'opération du relevé', v[10], v[11], v[14],
+        f.nom, f.type, f.data, provisoire]);
+    await fournisseurs.lierOperation(provisoire, v[5]);
+    flash(req, 'Justificatif rattaché à l\'opération déjà présente sur le relevé.');
+    if (depotId) {
+      await pool.query("UPDATE depots SET statut='enregistre', operation_id=$2 WHERE id=$1", [depotId, provisoire]);
+      return res.redirect(await prochainDepot(depotId));
+    }
+    return res.redirect('/operations');
+  }
   const { rows: ins } = await pool.query(
     `INSERT INTO operations (entite_id, date_op, type, categorie_id, libelle, tiers, montant_ttc, tva, notes,
        paiement, carte, livraison, reglement, montant_debite, numero_facture, date_paiement, justif_nom, justif_type, justif_data, created_by)

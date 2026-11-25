@@ -1067,27 +1067,47 @@ app.post('/fournisseurs/:id', requireAuth, async (req, res) => {
 });
 
 // Mode de récupération des factures, choisi par boutons dans la liste des fournisseurs.
-const MODES = ['email', 'automatique', 'session', 'auto', 'rien', 'scan'];
+const MODES = ['email', 'automatique', 'session', 'scan', 'rien'];
 app.post('/fournisseurs/:id/mode', requireAuth, async (req, res) => {
   const id = Number(req.params.id);
   const mode = MODES.includes((req.body || {}).mode) ? req.body.mode : null;
-  await pool.query(`UPDATE fournisseurs SET mode=$1, recup_annuelle = COALESCE($1 = 'session', FALSE), ecriture_auto = COALESCE($1 = 'auto', FALSE),
+  await pool.query(`UPDATE fournisseurs SET mode=$1, recup_annuelle = COALESCE($1 = 'session', FALSE), ecriture_auto = COALESCE($1 = 'rien', FALSE),
       automatise = CASE WHEN $1 IN ('email', 'automatique') THEN TRUE ELSE automatise END, modifie_main=TRUE WHERE id=$2`, [mode, id]);
   // Opérations créées d'office (session annuelle sans justificatif, écriture sans facture) qui ne correspondent plus au mode :
   // elles redeviennent des débits à rapprocher.
   const { rows } = await pool.query(`SELECT id FROM operations WHERE fournisseur_id=$1 AND justif_data IS NULL AND (
       (justif_attendu AND $2 IS DISTINCT FROM 'session')
-      OR (notes LIKE 'Écriture automatique sans facture%' AND $2 IS DISTINCT FROM 'auto')
-      OR (notes = 'Écriture automatique — rien à faire' AND $2 IS DISTINCT FROM 'rien'))`, [id, mode]);
+      OR (notes LIKE 'Écriture automatique%' AND $2 IS DISTINCT FROM 'rien'))`, [id, mode]);
   const ids = rows.map((r) => r.id);
   if (ids.length) {
     await pool.query('UPDATE lignes SET operation_id=NULL WHERE operation_id = ANY($1)', [ids]);
     await pool.query('DELETE FROM reglements WHERE operation_id = ANY($1)', [ids]);
     await pool.query('DELETE FROM operations WHERE id = ANY($1)', [ids]);
   }
-  if (['session', 'auto', 'rien'].includes(mode)) await releves.rapprocher();
+  if (['session', 'rien'].includes(mode)) await releves.rapprocher();
   if ((req.get('Accept') || '').includes('application/json')) return res.json({ ok: true, mode });
   res.redirect('/fournisseurs');
+});
+
+// ---------- rien à faire (URSSAF, impôts, salaires…) : simple consultation ----------
+app.get('/rien-a-faire', requireAuth, async (req, res) => {
+  const { rows } = await pool.query(`
+    SELECT f.id, f.nom, f.note, COUNT(o.id)::int AS nb, COALESCE(SUM(o.montant_ttc), 0) AS total, MAX(o.date_op) AS dernier,
+      string_agg(DISTINCT e.nom, ', ') AS societes
+    FROM fournisseurs f LEFT JOIN operations o ON o.fournisseur_id = f.id LEFT JOIN entites e ON e.id = o.entite_id
+    WHERE f.mode = 'rien' GROUP BY f.id ORDER BY COALESCE(SUM(o.montant_ttc), 0) DESC, f.nom`);
+  res.render('rien_a_faire', { liste: rows });
+});
+
+// ---------- à scanner : débits du relevé dont le ticket n'a pas encore été déposé ----------
+app.get('/a-scanner', requireAuth, async (req, res) => {
+  const { rows } = await pool.query(`
+    SELECT l.id, l.date_op, l.libelle, l.montant, f.nom AS fournisseur, e.nom AS entite, c.banque, c.nature, c.id AS compte_id
+    FROM lignes l JOIN fournisseurs f ON f.id = l.fournisseur_id JOIN comptes c ON c.id = l.compte_id
+      LEFT JOIN entites e ON e.id = c.entite_id
+    WHERE f.mode = 'scan' AND l.operation_id IS NULL AND l.total_carte IS NULL AND NOT l.ignoree AND l.montant < 0
+    ORDER BY l.date_op DESC, l.id`);
+  res.render('a_scanner', { lignes: rows });
 });
 
 // ---------- session annuelle de téléchargement (sites avec identifiant) ----------

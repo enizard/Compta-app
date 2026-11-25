@@ -201,10 +201,12 @@ async function init() {
   await pool.query(`UPDATE emails_recus SET statut='pas_facture'
     WHERE statut IN ('en_cours','traite') AND (de ILIKE '%@accounts.google.com>%' OR de ILIKE '%mail-noreply@google.com>%')`);
   // Mode de récupération déduit des réglages existants (une seule fois).
-  await pool.query(`UPDATE fournisseurs SET mode = CASE WHEN ecriture_auto THEN 'auto' WHEN recup_annuelle THEN 'session'
+  // « Sans facture » fusionné dans « Rien à faire ».
+  await pool.query(`UPDATE fournisseurs SET mode = 'rien' WHERE mode = 'auto'`);
+  await pool.query(`UPDATE fournisseurs SET mode = CASE WHEN ecriture_auto THEN 'rien' WHEN recup_annuelle THEN 'session'
     WHEN automatise THEN 'email' END WHERE mode IS NULL AND (ecriture_auto OR recup_annuelle OR automatise)`);
   // Organismes sans facture : leurs prélèvements deviennent des écritures automatiques.
-  await pool.query(`UPDATE fournisseurs SET ecriture_auto = TRUE
+  await pool.query(`UPDATE fournisseurs SET ecriture_auto = TRUE, mode = COALESCE(mode, 'rien')
     WHERE NOT ecriture_auto AND NOT modifie_main AND cle ~ '(^| )(urssaf|dgfip|sie|impots|tresor public)( |$)'`);
   for (const nom of ENTITES) {
     await pool.query('INSERT INTO entites (nom) VALUES ($1) ON CONFLICT DO NOTHING', [nom]);

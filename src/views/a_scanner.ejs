@@ -1,0 +1,18 @@
+<%- include('partials/header') %>
+<div class="head"><h1>À scanner <span class="muted">(<%= lignes.length %>)</span></h1></div>
+<p class="muted">Débits présents sur les relevés, de fournisseurs en mode « À scanner », dont le ticket ou la facture n'a pas encore été déposé. Déposez le scan depuis la page Opérations : il sera rapproché automatiquement.</p>
+<% if (!lignes.length) { %><p class="muted">Rien à scanner.</p><% } else { %>
+<table>
+  <thead><tr><th>Date</th><th>Fournisseur</th><th>Libellé du relevé</th><th>Société</th><th>Compte</th><th class="r">Montant</th></tr></thead>
+  <tbody>
+  <% lignes.forEach(l => { %>
+    <tr class="cliquable" onclick="location.href='/rapprochement?compte=<%= l.compte_id %>'">
+      <td><%= l.date_op.toLocaleDateString('fr-FR') %></td><td><strong><%= l.fournisseur %></strong></td><td><small><%= l.libelle %></small></td>
+      <td><%= l.entite || '' %></td><td><small><%= l.banque %> <%= l.nature === 'carte' ? 'carte' : 'compte' %></small></td>
+      <td class="r"><%= fmt(Math.abs(l.montant)) %></td>
+    </tr>
+  <% }) %>
+  </tbody>
+</table>
+<% } %>
+<%- include('partials/footer') %>

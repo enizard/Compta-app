@@ -93,19 +93,18 @@ async function rapprocher() {
 // Organismes sans facture (URSSAF, DGFIP…) : chaque ligne de relevé devient une écriture réglée, sans justificatif demandé.
 async function ecrituresSansFacture() {
   const { rows } = await pool.query(`
-    SELECT l.id, l.date_op, l.libelle, l.montant, c.entite_id, c.nature, c.banque, f.id AS fid, f.nom AS fnom, f.cle, f.ecriture_auto, f.mode = 'rien' AS rien
+    SELECT l.id, l.date_op, l.libelle, l.montant, c.entite_id, c.nature, c.banque, f.id AS fid, f.nom AS fnom, f.cle, (f.mode = 'rien' OR f.ecriture_auto) AS rien
     FROM lignes l JOIN comptes c ON c.id = l.compte_id JOIN fournisseurs f ON f.id = l.fournisseur_id
-    WHERE (f.ecriture_auto OR f.recup_annuelle OR f.mode = 'rien') AND l.operation_id IS NULL AND l.total_carte IS NULL AND NOT l.ignoree AND c.entite_id IS NOT NULL`);
+    WHERE (f.mode = 'rien' OR f.ecriture_auto OR f.recup_annuelle) AND l.operation_id IS NULL AND l.total_carte IS NULL AND NOT l.ignoree AND c.entite_id IS NOT NULL`);
   let n = 0;
   for (const l of rows) {
-    // Écriture auto : catégorie de l'organisme. Récupération annuelle : catégorie habituelle du fournisseur.
-    // Rien à faire (salaires…) : catégorie habituelle du fournisseur, sinon salaires.
-    const { rows: cat } = l.rien
-      ? await pool.query(`SELECT COALESCE((SELECT categorie_id FROM operations WHERE fournisseur_id=$1 AND categorie_id IS NOT NULL
-          ORDER BY date_op DESC LIMIT 1), (SELECT id FROM categories WHERE nom='Salaires & charges sociales')) AS id`, [l.fid])
-      : l.ecriture_auto
-      ? await pool.query('SELECT id FROM categories WHERE nom=$1', [/urssaf/.test(l.cle) ? 'Salaires & charges sociales' : 'Impôts & taxes'])
-      : await pool.query('SELECT categorie_id AS id FROM operations WHERE fournisseur_id=$1 AND categorie_id IS NOT NULL ORDER BY date_op DESC LIMIT 1', [l.fid]);
+    // Rien à faire (URSSAF, impôts, salaires…) : catégorie habituelle du fournisseur, sinon celle de l'organisme.
+    // Session annuelle : catégorie habituelle du fournisseur.
+    const { rows: cat } = await pool.query(`SELECT COALESCE(
+        (SELECT categorie_id FROM operations WHERE fournisseur_id=$1 AND categorie_id IS NOT NULL ORDER BY date_op DESC LIMIT 1),
+        CASE WHEN $2 THEN (SELECT id FROM categories WHERE nom = CASE WHEN $3 ~ 'urssaf' THEN 'Salaires & charges sociales'
+          WHEN $3 ~ '(^| )(urssaf|dgfip|sie|impots|tresor public)( |$)' THEN 'Impôts & taxes' ELSE 'Salaires & charges sociales' END) END) AS id`,
+      [l.fid, l.rien, l.cle]);
     const { rows: ins } = await pool.query(
       `INSERT INTO operations (entite_id, date_op, type, categorie_id, libelle, tiers, montant_ttc, tva, notes, paiement,
          reglement, date_paiement, fournisseur_id, justif_attendu)
@@ -113,9 +112,8 @@ async function ecrituresSansFacture() {
       [l.entite_id, l.date_op, Number(l.montant) < 0 ? 'depense' : 'recette', cat[0] ? cat[0].id : null, l.libelle, l.fnom,
         Math.abs(Number(l.montant)),
         l.rien ? 'Écriture automatique — rien à faire'
-          : l.ecriture_auto ? 'Écriture automatique sans facture (justificatif : déclaration / avis de l\'organisme)'
           : 'Justificatif à télécharger lors de la session annuelle',
-        paiementAttendu(l), l.fid, !l.ecriture_auto && !l.rien]);
+        paiementAttendu(l), l.fid, !l.rien]);
     await pool.query('UPDATE lignes SET operation_id=$1 WHERE id=$2 AND operation_id IS NULL', [ins[0].id, l.id]);
     n++;
   }

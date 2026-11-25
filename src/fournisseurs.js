@@ -13,7 +13,8 @@ async function idFournisseur(nom) {
   const k = cle(nom);
   if (!k) return null;
   const { rows } = await pool.query(
-    `INSERT INTO fournisseurs (nom, cle, ecriture_auto) VALUES ($1, $2, $2 ~ '(^| )(urssaf|dgfip|sie|impots|tresor public)( |$)')
+    `INSERT INTO fournisseurs (nom, cle, ecriture_auto, mode) VALUES ($1, $2, $2 ~ '(^| )(urssaf|dgfip|sie|impots|tresor public)( |$)',
+       CASE WHEN $2 ~ '(^| )(urssaf|dgfip|sie|impots|tresor public)( |$)' THEN 'rien' END)
      ON CONFLICT (cle) DO UPDATE SET cle = EXCLUDED.cle RETURNING id`, [String(nom).trim().slice(0, 80), k]);
   return rows[0].id;
 }
@@ -67,7 +68,8 @@ async function mettreAJour() {
       for (const r of res) {
         await pool.query(
           `UPDATE fournisseurs SET type=$1, en_ligne=$2, url=$3, recuperation=$4, note=$5, classe_le=NOW(),
-             ecriture_auto = ecriture_auto OR cle ~ '(^| )(urssaf|dgfip|sie|impots|tresor public)( |$)'
+             ecriture_auto = ecriture_auto OR cle ~ '(^| )(urssaf|dgfip|sie|impots|tresor public)( |$)',
+             mode = COALESCE(mode, CASE WHEN cle ~ '(^| )(urssaf|dgfip|sie|impots|tresor public)( |$)' THEN 'rien' END)
            WHERE id=$6 AND NOT modifie_main`,
           [r.recurrent ? 'recurrent' : 'ponctuel', r.en_ligne, r.url, r.recuperation, r.note, r.id]);
       }

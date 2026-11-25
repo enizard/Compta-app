@@ -1,0 +1,16 @@
+<%- include('partials/header') %>
+<div class="head"><h1>Rien à faire</h1></div>
+<p class="muted">Fournisseurs sans justificatif à fournir (URSSAF, impôts, salaires…) : leurs débits sont enregistrés automatiquement et comptés comme rapprochés. Pour changer : Fournisseurs → mode de récupération.</p>
+<% if (!liste.length) { %><p class="muted">Aucun.</p><% } else { %>
+<table>
+  <thead><tr><th>Fournisseur</th><th>Société(s)</th><th class="r">Opérations</th><th class="r">Total</th><th>Dernière</th></tr></thead>
+  <tbody>
+  <% liste.forEach(f => { %>
+    <tr><td><strong><%= f.nom %></strong><% if (f.note) { %><br><small class="muted"><%= f.note %></small><% } %></td>
+      <td><small><%= f.societes || '' %></small></td><td class="r"><%= f.nb %></td><td class="r"><%= fmt(f.total) %></td>
+      <td><%= f.dernier ? f.dernier.toLocaleDateString('fr-FR') : '' %></td></tr>
+  <% }) %>
+  </tbody>
+</table>
+<% } %>
+<%- include('partials/footer') %>

@@ -18,8 +18,10 @@
   <a href="/fournisseurs">Fournisseurs</a>
   <a href="/boite">Boîte factures</a>
   <a href="/session-annuelle">Session annuelle</a>
+  <a href="/a-scanner">À scanner</a>
   <a href="/synthese">Synthèse</a>
   <% if (user.is_admin) { %><a href="/admin">Administration</a><% } %>
+  <a href="/rien-a-faire">Rien à faire</a>
   <span class="spacer"></span>
   <a href="/compte"><%= user.nom %></a>
   <form method="post" action="/logout" class="inline"><button class="link">Déconnexion</button></form>

@@ -187,3 +187,19 @@ table.fourn .segments.modes button { flex: 1 1 auto; padding: 4px 3px; font-size
 table.fourn a.edit { text-decoration: none; font-size: 15px; }
 nav.top .sep { display: inline-block; width: 1px; height: 20px; margin: 0 18px; background: rgba(255,255,255,.45); align-self: center; }
 table.fourn td.fact { white-space: nowrap; }
+/* Menu latéral */
+body:has(> nav.top) { padding-left: 210px; }
+nav.top { position: fixed; top: 0; left: 0; bottom: 0; width: 210px; box-sizing: border-box; flex-direction: column; align-items: stretch;
+  gap: 2px; padding: 18px 12px; overflow-y: auto; box-shadow: 2px 0 8px rgba(74, 52, 40, .18); }
+nav.top a, nav.top button.link { display: block; padding: 7px 10px; border-radius: 6px; text-align: left; }
+nav.top a:hover, nav.top button.link:hover { background: rgba(255,255,255,.08); }
+nav.top a.actif { background: rgba(255,255,255,.16); color: #fff; font-weight: 600; }
+nav.top .brand { font-size: 18px; margin: 0 0 14px; padding: 4px 10px; }
+nav.top .sep { display: block; width: auto; height: 1px; margin: 10px 6px; background: rgba(255,255,255,.3); }
+nav.top .spacer { flex: 1; }
+nav.top form.inline { display: block; }
+nav.top button.link { width: 100%; background: none; border: 0; font: inherit; cursor: pointer; }
+@media (max-width: 760px) {
+  body:has(> nav.top) { padding-left: 0; }
+  nav.top { position: static; width: auto; flex-direction: row; flex-wrap: wrap; }
+}

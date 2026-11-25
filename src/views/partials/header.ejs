@@ -26,6 +26,13 @@
   <a href="/compte"><%= user.nom %></a>
   <form method="post" action="/logout" class="inline"><button class="link">Déconnexion</button></form>
 </nav>
+<script>
+  // Entrée du menu correspondant à la page affichée.
+  document.querySelectorAll('nav.top a:not(.brand)').forEach((a) => {
+    const p = a.getAttribute('href');
+    if (location.pathname === p || location.pathname.startsWith(p + '/')) a.classList.add('actif');
+  });
+</script>
 <% } %>
 <main>
 <% if (flash) { %><div class="flash <%= flash.type %>"><%= flash.msg %></div><% } %>

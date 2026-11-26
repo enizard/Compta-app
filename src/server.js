@@ -906,13 +906,36 @@ app.get('/rapprochement', requireAuth, async (req, res) => {
        (SELECT COALESCE(SUM(montant),0) FROM lignes WHERE releve_id = r.id) AS total
      FROM releves r WHERE r.compte_id = $1 ORDER BY r.periode_debut DESC NULLS LAST, r.id DESC`, [compte.id]);
   const lignesAffichees = filtre === 'ecarts' ? lignes.filter((l) => l.ecarts && l.ecarts.length) : lignes;
+  // Couverture : pour chaque compte, mois couverts par un relevé chargé (plus de la moitié du mois), du premier relevé au mois dernier.
+  const { rows: per } = await pool.query('SELECT compte_id, periode_debut, periode_fin FROM releves WHERE periode_debut IS NOT NULL AND periode_fin IS NOT NULL');
+  const jour = 86400000, auj = new Date();
+  const finMois = new Date(Date.UTC(auj.getUTCFullYear(), auj.getUTCMonth(), 0));
+  let debutMois = per.length ? new Date(Math.min(...per.map((p) => p.periode_debut.getTime()))) : finMois;
+  debutMois = new Date(Date.UTC(debutMois.getUTCFullYear(), debutMois.getUTCMonth(), 1));
+  const mois = [];
+  for (let d = new Date(debutMois); d <= finMois; d = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1))) mois.push(d);
+  const couverture = comptes.map((c) => {
+    const ps = per.filter((p) => p.compte_id === c.id);
+    const etat = mois.map((m) => {
+      const fin = new Date(Date.UTC(m.getUTCFullYear(), m.getUTCMonth() + 1, 0));
+      const nbJours = Math.round((fin - m) / jour) + 1;
+      let couverts = 0;
+      for (let t = m.getTime(); t <= fin.getTime(); t += jour) {
+        if (ps.some((p) => p.periode_debut.getTime() <= t && t <= p.periode_fin.getTime())) couverts++;
+      }
+      return couverts * 2 > nbJours ? 'ok' : couverts ? 'partiel' : 'manque';
+    });
+    // Avant le premier relevé de ce compte : sans objet (compte peut-être ouvert plus tard).
+    const premier = ps.length ? Math.min(...ps.map((p) => p.periode_debut.getTime())) : Infinity;
+    return { ...c, etat: etat.map((e, i) => (mois[i].getTime() + 31 * jour < premier && e === 'manque' ? 'avant' : e)) };
+  });
   // Nombre d'incohérences par compte (pour les onglets).
   for (const c of comptes) {
     const { rows: rr } = await pool.query(`SELECT o.entite_id, o.paiement FROM lignes l JOIN operations o ON o.id = l.operation_id
       WHERE l.compte_id = $1 AND NOT l.ecart_accepte`, [c.id]);
     c.nb_ecarts = rr.filter((o) => releves.ecarts(o, c, nomsEntites).length).length;
   }
-  res.render('rapprochement', { visibles, societe, comptes, compte, lignes: lignesAffichees, releves: rels, filtre, ...(await refs()) });
+  res.render('rapprochement', { visibles, societe, mois, couverture, comptes, compte, lignes: lignesAffichees, releves: rels, filtre, ...(await refs()) });
 });
 
 app.post('/rapprochement/auto', requireAuth, async (req, res) => {

@@ -34,6 +34,23 @@
   <% }) %>
 </div>
 
+<% const manquants = couverture.reduce((n, c) => n + c.etat.filter((e) => e !== 'ok' && e !== 'avant').length, 0); %>
+<details class="couverture" <%= manquants ? 'open' : '' %>>
+  <summary><strong>Relevés chargés par mois</strong> <%- manquants ? `<span class="badge">${manquants} mois manquant(s) ou incomplet(s)</span>` : '<span class="pos">✓ complet</span>' %></summary>
+  <div class="couv-scroll">
+  <table class="couv">
+    <thead><tr><th>Société · compte</th><% mois.forEach((m, i) => { %><th class="<%= m.getUTCMonth() === 0 || i === 0 ? 'an' : '' %>"><%= m.toLocaleDateString('fr-FR', { month: 'short', timeZone: 'UTC' }).replace('.', '') %><% if (m.getUTCMonth() === 0 || i === 0) { %><br><small><%= m.getUTCFullYear() %></small><% } %></th><% }) %></tr></thead>
+    <tbody>
+    <% couverture.slice().sort((a, b) => (a.entite || '~').localeCompare(b.entite || '~') || (a.nature === 'carte') - (b.nature === 'carte')).forEach(c => { %>
+      <tr><td><a href="/rapprochement?compte=<%= c.id %>"><strong><%= c.entite || 'Société à préciser' %></strong> · <%= c.banque === 'AMEX' ? 'Carte AMEX' : c.nature === 'carte' ? 'Carte ' + c.banque : 'Compte ' + c.banque %> …<%= c.numero || '?' %></a></td>
+        <% c.etat.forEach((e, i) => { %><td class="couv-<%= e %>" title="<%= mois[i].toLocaleDateString('fr-FR', { month: 'long', year: 'numeric', timeZone: 'UTC' }) %> : <%= { ok: 'relevé chargé', partiel: 'relevé incomplet', manque: 'relevé manquant', avant: 'avant le premier relevé' }[e] %>"><%= { ok: '✓', partiel: '½', manque: '✗', avant: '' }[e] %></td><% }) %>
+      </tr>
+    <% }) %>
+    </tbody>
+  </table>
+  </div>
+</details>
+
 <div class="barre-outils">
   <span class="spacer"></span>
   <a class="<%= filtre === 'a_faire' ? 'actif' : '' %>" href="/rapprochement?compte=<%= compte.id %>">À rapprocher</a> ·

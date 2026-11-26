@@ -224,3 +224,15 @@ table.resultat tr.resultat-net td { font-weight: 700; font-size: 15px; border-to
 /* Factures de ventes */
 .fv-apercu { background: #fff; border: 1px solid #e8dccb; border-radius: 10px; padding: 14mm 0; margin-top: 10px; overflow-x: auto; }
 .ligne-fv { display: grid; grid-template-columns: 1fr 160px; gap: 8px; margin-bottom: 6px; }
+/* Relevés : couverture mensuelle */
+details.couverture { background: #fffdfa; border: 1px solid #e8dccb; border-radius: 10px; padding: 8px 12px; margin: 0 0 16px; }
+details.couverture summary { cursor: pointer; }
+.couv-scroll { overflow-x: auto; margin-top: 8px; }
+table.couv { width: auto; border-collapse: collapse; font-size: 12px; }
+table.couv th, table.couv td { padding: 3px 5px; text-align: center; border: 1px solid #efe4d6; white-space: nowrap; }
+table.couv th:first-child, table.couv td:first-child { text-align: left; position: sticky; left: 0; background: #fffdfa; }
+table.couv th.an { border-left: 2px solid #c9b79f; }
+.couv-ok { background: #dff3e4; color: #1e6b37; }
+.couv-partiel { background: #fde7c2; color: #7a4a00; }
+.couv-manque { background: #fbd9d5; color: #a3261a; font-weight: 600; }
+.couv-avant { background: #f4efe8; }

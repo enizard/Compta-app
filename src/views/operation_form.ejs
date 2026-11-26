@@ -120,7 +120,9 @@
     </label>
     <label id="champCarte">Carte utilisée<input name="carte" value="<%= op.carte || '' %>" placeholder="ex. VISA **** 1234"></label>
     <label class="reg-detail">Date de paiement<input type="date" name="date_paiement" value="<%= op.date_paiement || '' %>"></label>
-    <label class="reg-detail">Montant débité (€) <small class="muted">si différent : crédit, avoir…</small><input name="montant_debite" inputmode="decimal" value="<%= op.montant_debite != null ? String(op.montant_debite).replace('.', ',') : '' %>"></label>
+    <% const debiteRempli = op.montant_debite != null && op.montant_debite !== ''; %>
+    <div class="reg-detail" id="lienDebite" <%= debiteRempli ? 'hidden' : '' %>><small><a href="#" onclick="const c = document.getElementById('champDebite'); c.dataset.ouvert = '1'; c.hidden = false; this.parentElement.parentElement.hidden = true; c.querySelector('input').focus(); return false;">Montant débité différent ?</a></small></div>
+    <label class="reg-detail" id="champDebite" <%= debiteRempli ? '' : 'hidden' %>>Montant débité (€) <small class="muted">crédit, avoir, devise…</small><input name="montant_debite" inputmode="decimal" value="<%= debiteRempli ? String(op.montant_debite).replace('.', ',') : '' %>"></label>
     <% if (op.recu_nom) { %><div class="reg-detail"><small>Reçu de paiement : <a href="/operations/<%= op.id %>/recu" target="_blank"><%= op.recu_nom %></a></small></div><% } %>
     <div class="wide reg-detail">
       <label class="inline"><input type="checkbox" name="plusieurs_fois" value="1" id="plusieurs" <%= op.reglements && op.reglements.length ? 'checked' : '' %>> Réglé en plusieurs fois</label>
@@ -192,6 +194,9 @@
     function majCarte() {
       const aRegler = (f.querySelector('input[name="reglement"]:checked') || {}).value === 'Non réglé';
       document.querySelectorAll('.reg-detail').forEach((el) => { el.hidden = aRegler; });
+      // Montant débité : visible seulement s'il est rempli ou demandé, sinon le lien.
+      const champ = document.getElementById('champDebite'), lien = document.getElementById('lienDebite');
+      if (champ && !aRegler) { const ouvert = champ.dataset.ouvert === '1' || champ.querySelector('input').value.trim() !== ''; champ.hidden = !ouvert; lien.hidden = ouvert; }
       const carte = ['CB CIC', 'AMEX'].includes(f.paiement.value) || f.carte.value.trim() !== '';
       document.getElementById('champCarte').hidden = aRegler || !carte;
     }

@@ -88,6 +88,10 @@ async function rapprocher() {
   auto += await ecrituresSansFacture();
   auto += await encaissementsAuto();
   await attribuerSocietes();
+  // Opération rapprochée d'une ligne du relevé : payée (ou encaissée) à la date de la ligne.
+  await pool.query(`UPDATE operations o SET reglement = 'Réglé', date_paiement = COALESCE(o.date_paiement, l.date_op), updated_at = NOW()
+    FROM lignes l WHERE l.operation_id = o.id AND (o.reglement IS NULL OR o.reglement = 'Non réglé')
+      AND ABS(ABS(l.montant) - COALESCE(o.montant_debite, o.montant_ttc)) < 0.01`);
   return auto;
 }
 

@@ -106,7 +106,7 @@
       <span class="lbl">Règlement</span>
       <div class="segments">
         <% REGLEMENTS.forEach(x => { %>
-          <label class="seg seg-<%= x === 'À régler' ? 'non' : x === 'Déjà réglé' ? 'oui' : 'part' %>">
+          <label class="seg seg-<%= x === 'Non réglé' ? 'non' : x === 'Réglé' ? 'oui' : 'part' %>">
             <input type="radio" name="reglement" value="<%= x %>" <%= op.reglement === x ? 'checked' : '' %>><span><%= x %></span>
           </label>
         <% }) %>
@@ -188,9 +188,9 @@
     }
     f.entite_id.addEventListener('change', majMoyens); majMoyens();
     // « Carte utilisée » : seulement si une carte a été reconnue ou si le paiement est par carte.
-    // Statut « À régler » : les éléments de règlement ne servent à rien, on les masque.
+    // Statut « Non réglé » : les éléments de règlement ne servent à rien, on les masque.
     function majCarte() {
-      const aRegler = (f.querySelector('input[name="reglement"]:checked') || {}).value === 'À régler';
+      const aRegler = (f.querySelector('input[name="reglement"]:checked') || {}).value === 'Non réglé';
       document.querySelectorAll('.reg-detail').forEach((el) => { el.hidden = aRegler; });
       const carte = ['CB CIC', 'AMEX'].includes(f.paiement.value) || f.carte.value.trim() !== '';
       document.getElementById('champCarte').hidden = aRegler || !carte;

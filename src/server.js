@@ -7,7 +7,7 @@ const multer = require('multer');
 const crypto = require('crypto');
 const { pool, init } = require('./db');
 const LIVRAISONS = ['Non livré', 'Partiellement livré', 'Livré en totalité'];
-const REGLEMENTS = ['À régler', 'Partiellement réglé', 'Déjà réglé'];
+const REGLEMENTS = ['Réglé', 'Partiellement réglé', 'Non réglé'];
 const { analyser, classer, extraireLignes, decouperPdf, PAIEMENTS } = require('./analyse');
 const releves = require('./releves');
 const fournisseurs = require('./fournisseurs');
@@ -315,7 +315,7 @@ async function rattacherRecu(opId, r, fichier) {
       date_paiement = COALESCE($1::date, date_paiement),
       paiement = COALESCE($2, paiement), carte = COALESCE($3, carte),
       montant_debite = CASE WHEN $4::numeric IS NOT NULL AND ABS(montant_ttc - $4::numeric) > 0.01 THEN $4::numeric ELSE montant_debite END,
-      reglement = COALESCE(reglement, 'Déjà réglé'),
+      reglement = COALESCE(reglement, 'Réglé'),
       recu_nom = COALESCE($5, recu_nom), recu_type = COALESCE($6, recu_type), recu_data = COALESCE($7, recu_data),
       updated_at = NOW()
     WHERE id = $8`,
@@ -722,7 +722,7 @@ async function enregistrerReglements(opId, b, montantTtc) {
     await pool.query('INSERT INTO reglements (operation_id, date_reg, montant, paiement) VALUES ($1,$2,$3,$4)',
       [opId, dates[i] || null, m, PAIEMENTS.includes(modes[i]) ? modes[i] : null]);
   }
-  const statut = total <= 0 ? 'À régler' : total + 0.005 >= montantTtc ? 'Déjà réglé' : 'Partiellement réglé';
+  const statut = total <= 0 ? 'Non réglé' : total + 0.005 >= montantTtc ? 'Réglé' : 'Partiellement réglé';
   await pool.query('UPDATE operations SET reglement=$1 WHERE id=$2', [statut, opId]);
 }
 

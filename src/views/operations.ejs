@@ -83,9 +83,9 @@
       <td><%= o.libelle %><% if (o.livraison && o.livraison !== 'Livré en totalité') { %> <span class="badge warn"><%= o.livraison %></span><% } %></td>
       <td><%= o.tiers || '' %></td>
       <td><%= o.categorie || '' %></td>
-      <% const reg = o.reglement || (o.rapprochee || o.date_paiement || o.paiement ? 'Déjà réglé' : 'À régler'); %>
+      <% const reg = o.reglement || (o.rapprochee || o.date_paiement || o.paiement ? 'Réglé' : 'Non réglé'); %>
       <td><%= libPaiement(o.paiement, o.entite) %><% if (!o.paiement && o.type === 'depense') { %><span class="muted">À déterminer</span><% } %></td>
-      <td class="<%= reg === 'Déjà réglé' ? 'pos' : reg === 'À régler' ? 'neg' : 'warn' %>"><%= reg === 'Déjà réglé' ? '✓ Réglé' : reg === 'À régler' ? 'Non réglé' : reg %></td>
+      <td class="<%= reg === 'Réglé' ? 'pos' : reg === 'Non réglé' ? 'neg' : 'warn' %>"><%= reg === 'Réglé' ? '✓ Réglé' : reg === 'Non réglé' ? 'Non réglé' : reg %></td>
       <td class="r <%= o.type === 'recette' ? 'pos' : 'neg' %>"><%= o.type === 'recette' ? '+' : '−' %> <%= fmt(o.montant_ttc) %></td>
       <td class="r"><%= Number(o.tva) ? fmt(o.tva) : '' %></td>
       <td><% if (o.rapprochee) { %><span title="Rapprochée avec le relevé">🏦</span><% } %><% if (o.justif_nom) { %><a href="/operations/<%= o.id %>/justificatif" target="_blank">📎</a><% } else if (!o.rapprochee) { %><span class="muted">—</span><% } %></td>

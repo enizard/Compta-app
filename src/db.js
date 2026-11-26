@@ -197,7 +197,7 @@ async function init() {
     AND NOT EXISTS (SELECT 1 FROM depots d2 WHERE d2.lot_id = l.id AND d2.statut = 'a_valider')`);
   await pool.query("DELETE FROM depots WHERE lot_id IS NULL");
   await pool.query("UPDATE operations SET paiement='Virement / prélèvement CIC' WHERE paiement='Virement / prélèvement'");
-  await pool.query("UPDATE operations SET reglement = CASE reglement WHEN 'Non réglé' THEN 'À régler' WHEN 'Réglé en totalité' THEN 'Déjà réglé' ELSE reglement END WHERE reglement IN ('Non réglé','Réglé en totalité')");
+  await pool.query("UPDATE operations SET reglement = CASE reglement WHEN 'À régler' THEN 'Non réglé' WHEN 'Déjà réglé' THEN 'Réglé' WHEN 'Réglé en totalité' THEN 'Réglé' ELSE reglement END WHERE reglement IN ('À régler','Déjà réglé','Réglé en totalité')");
   await pool.query(`UPDATE emails_recus SET statut='pas_facture'
     WHERE statut IN ('en_cours','traite') AND (de ILIKE '%@accounts.google.com>%' OR de ILIKE '%mail-noreply@google.com>%')`);
   // Mode de récupération déduit des réglages existants (une seule fois).

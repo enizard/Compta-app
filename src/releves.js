@@ -108,7 +108,7 @@ async function ecrituresSansFacture() {
     const { rows: ins } = await pool.query(
       `INSERT INTO operations (entite_id, date_op, type, categorie_id, libelle, tiers, montant_ttc, tva, notes, paiement,
          reglement, date_paiement, fournisseur_id, justif_attendu)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,0,$8,$9,'Déjà réglé',$2,$10,$11) RETURNING id`,
+       VALUES ($1,$2,$3,$4,$5,$6,$7,0,$8,$9,'Réglé',$2,$10,$11) RETURNING id`,
       [l.entite_id, l.date_op, Number(l.montant) < 0 ? 'depense' : 'recette', cat[0] ? cat[0].id : null, l.libelle, l.fnom,
         Math.abs(Number(l.montant)),
         l.rien ? 'Écriture automatique — rien à faire'

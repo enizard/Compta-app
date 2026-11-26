@@ -117,7 +117,19 @@ const OPS_SELECT = `
   SELECT o.id, o.date_op, o.type, o.libelle, o.tiers, o.montant_ttc, o.tva, o.notes,
          o.justif_nom, o.entite_id, o.categorie_id, o.paiement, o.carte, o.livraison, o.reglement, o.montant_debite, o.numero_facture, to_char(o.date_paiement, 'YYYY-MM-DD') AS date_paiement, o.recu_nom,
          e.nom AS entite, c.nom AS categorie, u.nom AS auteur,
-         EXISTS (SELECT 1 FROM lignes x WHERE x.operation_id = o.id) AS rapprochee
+         EXISTS (SELECT 1 FROM lignes x WHERE x.operation_id = o.id) AS rapprochee,
+         -- Origine de l'opération (affichée dans la liste avec son explication).
+         CASE WHEN o.facture_vente_id IS NOT NULL THEN 'vente'
+              WHEN o.notes LIKE 'Écriture automatique%' THEN 'rien'
+              WHEN o.justif_attendu THEN 'session_attente'
+              WHEN o.notes LIKE 'Encaissement automatique%' THEN 'encaissement'
+              ELSE COALESCE(
+                (SELECT CASE WHEN lo.source = 'email' THEN 'email' WHEN lo.info = 'Dépôt groupé' THEN 'groupe'
+                             WHEN lo.info = 'Session annuelle de téléchargement' THEN 'session' ELSE 'depot' END
+                 FROM depots d JOIN lots lo ON lo.id = d.lot_id WHERE d.operation_id = o.id ORDER BY d.id LIMIT 1),
+                CASE WHEN o.justif_data IS NULL AND EXISTS (SELECT 1 FROM lignes x WHERE x.operation_id = o.id AND x.libelle = o.libelle)
+                     THEN 'ligne' END,
+                'manuel') END AS origine
   FROM operations o
   LEFT JOIN entites e ON e.id = o.entite_id
   LEFT JOIN categories c ON c.id = o.categorie_id

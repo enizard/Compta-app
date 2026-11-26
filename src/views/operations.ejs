@@ -74,7 +74,7 @@
 </div>
 
 <table>
-  <thead><tr><th>Date</th><th>Société</th><th>Libellé</th><th>Tiers</th><th>Catégorie</th><th>Paiement</th><th>Règlement</th><th class="r">Montant TTC</th><th class="r">TVA</th><th>Justif.</th></tr></thead>
+  <thead><tr><th>Date</th><th>Société</th><th>Libellé</th><th>Tiers</th><th>Catégorie</th><th>Paiement</th><th>Règlement</th><th class="r">Montant TTC</th><th class="r">TVA</th><th>Justif.</th><th>Origine</th></tr></thead>
   <tbody>
   <% ops.forEach(o => { %>
     <tr class="cliquable" data-href="/operations/<%= o.id %>/edit">
@@ -89,9 +89,21 @@
       <td class="r <%= o.type === 'recette' ? 'pos' : 'neg' %>"><%= o.type === 'recette' ? '+' : '−' %> <%= fmt(o.montant_ttc) %></td>
       <td class="r"><%= Number(o.tva) ? fmt(o.tva) : '' %></td>
       <td><% if (o.rapprochee) { %><span title="Rapprochée avec le relevé">🏦</span><% } %><% if (o.justif_nom) { %><a href="/operations/<%= o.id %>/justificatif" target="_blank">📎</a><% } else if (!o.rapprochee) { %><span class="muted">—</span><% } %></td>
+      <% const OR = {
+           email: ['Boîte factures', 'Reçue par e-mail sur factures@simpleandnew.com, lue et enregistrée automatiquement.'],
+           groupe: ['Dépôt groupé', 'Déposée avec d\'autres fichiers : lue et enregistrée automatiquement, sans fenêtre de validation.'],
+           depot: ['Dépôt', 'Déposée dans la zone de dépôt puis validée dans la fenêtre.'],
+           session: ['Session annuelle', 'Justificatif téléchargé et déposé lors de la session annuelle.'],
+           session_attente: ['Relevé · session annuelle', 'Débit du relevé d\'un fournisseur en « Session annuelle » : compté comme rapproché, justificatif à télécharger lors de la prochaine session.'],
+           rien: ['Relevé · rien à faire', 'Débit du relevé d\'un fournisseur en « Rien à faire » (URSSAF, impôts, salaires…) : aucun justificatif à fournir.'],
+           encaissement: ['Relevé · encaissement', 'Virement reçu (Stripe…) compté automatiquement en revenu.'],
+           ligne: ['Relevé · créée à la main', 'Créée depuis une ligne du relevé avec « Créer l\'écriture ».'],
+           vente: ['Facture de vente', 'Émise depuis le menu Factures de ventes.'],
+           manuel: ['Saisie', 'Saisie à la main' + (o.auteur ? ' par ' + o.auteur : '') + '.'] }[o.origine] || ['—', '']; %>
+      <td class="origine" title="<%= OR[1] %>"><small><%= OR[0] %></small></td>
     </tr>
   <% }) %>
-  <% if (!ops.length) { %><tr><td colspan="10" class="muted center">Aucune opération.</td></tr><% } %>
+  <% if (!ops.length) { %><tr><td colspan="11" class="muted center">Aucune opération.</td></tr><% } %>
   </tbody>
 </table>
 <script>

@@ -47,11 +47,11 @@ async function mettreAJour() {
 
     // 2) Opérations saisies sans fournisseur : d'après le tiers.
     const { rows: ops } = await pool.query(
-      "SELECT id, tiers FROM operations WHERE fournisseur_id IS NULL AND COALESCE(tiers,'') <> ''");
+      "SELECT id, tiers FROM operations WHERE fournisseur_id IS NULL AND type = 'depense' AND COALESCE(tiers,'') <> ''");
     for (const o of ops) await lierOperation(o.id, o.tiers);
     // Une opération rapprochée hérite du fournisseur de sa ligne de relevé.
     await pool.query(`UPDATE operations o SET fournisseur_id = l.fournisseur_id FROM lignes l
-      WHERE l.operation_id = o.id AND o.fournisseur_id IS NULL AND l.fournisseur_id IS NOT NULL`);
+      WHERE l.operation_id = o.id AND o.fournisseur_id IS NULL AND l.fournisseur_id IS NOT NULL AND o.type = 'depense'`);
 
     // 3) Classification des fournisseurs pas encore classés.
     for (;;) {

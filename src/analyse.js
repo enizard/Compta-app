@@ -14,13 +14,15 @@ function prompt(categories) {
 Pour CHAQUE facture ou ticket distinct visible, extrais les informations. Réponds UNIQUEMENT avec un objet JSON, sans texte autour :
 { "documents": [
   {
-    "fournisseur": string|null,        // nom du commerçant / fournisseur
+    "sens": "achat"|"vente",           // "vente" si le document est une facture ÉMISE par l'une de nos sociétés (émetteur / en-tête / mentions légales :
+                                       // Simple and New, LMF, BMG ou SCI E NIZARD) à destination d'un client ; sinon "achat"
+    "fournisseur": string|null,        // nom du commerçant / fournisseur ; pour une VENTE : nom du CLIENT destinataire
     "date": "AAAA-MM-JJ"|null,         // date de la facture ou du ticket
     "montant_ttc": number|null,        // total TTC payé
     "tva": number|null,                // montant total de TVA (somme des taux)
     "montant_ht": number|null,         // total HT
     "carte": string|null,              // carte utilisée telle qu'imprimée (ex. "VISA **** 1234", "AMEX"), sinon null
-    "societe": "LMF"|"SAN"|"BMG"|"SCI"|null,
+    "societe": "LMF"|"SAN"|"BMG"|"SCI"|null, // pour une VENTE : la société émettrice
     "paiement": "CB CIC"|"AMEX"|"Avance CC"|"Autre"|null,
     "categorie": string|null,          // une valeur EXACTE de cette liste : ${JSON.stringify(categories)}
     "libelle": string|null,            // description courte de l'achat (ex. "Fournitures de bureau")

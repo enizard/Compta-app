@@ -1,6 +1,28 @@
 <%- include('partials/header') %>
 <h1>Administration</h1>
 
+<h2 id="societes">Sociétés</h2>
+<p class="muted">Exercice comptable et modèle des factures de ventes de chaque société. La numérotation des factures est propre à chaque société.</p>
+<% const MOIS = ['janvier','février','mars','avril','mai','juin','juillet','août','septembre','octobre','novembre','décembre']; %>
+<% societes.forEach(e => { %>
+<details class="card">
+  <summary><strong><%= e.nom %></strong> <small class="muted">— exercice à partir du 1er <%= MOIS[e.debut_exercice - 1] %> · prochaine facture <%= (e.facture_prefixe || '') + e.facture_prochain %></small></summary>
+  <form method="post" action="/admin/entites/<%= e.id %>" enctype="multipart/form-data" class="grid">
+    <label>Début d'exercice<select name="debut_exercice"><% MOIS.forEach((m, i) => { %><option value="<%= i + 1 %>" <%= e.debut_exercice === i + 1 ? 'selected' : '' %>>1er <%= m %></option><% }) %></select></label>
+    <label>Préfixe des numéros<input name="facture_prefixe" value="<%= e.facture_prefixe || '' %>" placeholder="ex. F"></label>
+    <label>Prochain numéro<input type="number" min="1" name="facture_prochain" value="<%= e.facture_prochain %>"></label>
+    <label>Logo <%= e.a_logo ? '(déjà chargé)' : '' %><input type="file" name="logo" accept="image/*"></label>
+    <label>N° TVA intracommunautaire<input name="facture_tva_intra" value="<%= e.facture_tva_intra || '' %>"></label>
+    <label>Mention TVA<input name="facture_mention_tva" value="<%= e.facture_mention_tva || '' %>" placeholder="ex. TVA collectée sur les encaissements"></label>
+    <label>Conditions de règlement par défaut<input name="facture_conditions" value="<%= e.facture_conditions || '' %>"></label>
+    <label class="wide">Références bancaires (2 lignes)<textarea name="facture_banque" rows="2"><%= e.facture_banque || '' %></textarea></label>
+    <label class="wide">Pénalités de retard<textarea name="facture_penalites" rows="2"><%= e.facture_penalites || '' %></textarea></label>
+    <label class="wide">Pied de page (mentions légales)<textarea name="facture_pied" rows="4"><%= e.facture_pied || '' %></textarea></label>
+    <div class="wide"><button>Enregistrer</button></div>
+  </form>
+</details>
+<% }) %>
+
 <h2 id="comptes">Comptes bancaires</h2>
 <p class="muted">Société titulaire de chaque compte, reconnue automatiquement à l'import des relevés. À corriger seulement en cas d'erreur : les lignes du compte sont alors rapprochées avec les factures de la bonne société.</p>
 <% if (!comptes.length) { %><p class="muted">Aucun compte (aucun relevé importé).</p><% } else { %>

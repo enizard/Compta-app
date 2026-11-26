@@ -167,6 +167,38 @@ async function init() {
     ALTER TABLE fournisseurs ADD COLUMN IF NOT EXISTS recup_annuelle BOOLEAN NOT NULL DEFAULT FALSE;
     ALTER TABLE operations ADD COLUMN IF NOT EXISTS justif_attendu BOOLEAN NOT NULL DEFAULT FALSE;
     ALTER TABLE fournisseurs ADD COLUMN IF NOT EXISTS mode TEXT;
+    ALTER TABLE entites ADD COLUMN IF NOT EXISTS debut_exercice INTEGER NOT NULL DEFAULT 1;
+    ALTER TABLE entites ADD COLUMN IF NOT EXISTS facture_prefixe TEXT;
+    ALTER TABLE entites ADD COLUMN IF NOT EXISTS facture_prochain INTEGER NOT NULL DEFAULT 1;
+    ALTER TABLE entites ADD COLUMN IF NOT EXISTS facture_tva_intra TEXT;
+    ALTER TABLE entites ADD COLUMN IF NOT EXISTS facture_mention_tva TEXT;
+    ALTER TABLE entites ADD COLUMN IF NOT EXISTS facture_banque TEXT;
+    ALTER TABLE entites ADD COLUMN IF NOT EXISTS facture_conditions TEXT;
+    ALTER TABLE entites ADD COLUMN IF NOT EXISTS facture_penalites TEXT;
+    ALTER TABLE entites ADD COLUMN IF NOT EXISTS facture_pied TEXT;
+    ALTER TABLE entites ADD COLUMN IF NOT EXISTS logo BYTEA;
+    ALTER TABLE entites ADD COLUMN IF NOT EXISTS logo_type TEXT;
+    CREATE TABLE IF NOT EXISTS factures_vente (
+      id SERIAL PRIMARY KEY,
+      entite_id INTEGER NOT NULL REFERENCES entites(id),
+      numero TEXT,
+      date DATE,
+      client_nom TEXT,
+      client_adresse TEXT,
+      client_tva TEXT,
+      bon_commande TEXT,
+      lignes JSONB NOT NULL DEFAULT '[]',
+      frais JSONB NOT NULL DEFAULT '[]',
+      taux_tva NUMERIC(5,2) NOT NULL DEFAULT 20,
+      acompte NUMERIC(12,2) NOT NULL DEFAULT 0,
+      conditions TEXT,
+      statut TEXT NOT NULL DEFAULT 'brouillon',
+      operation_id INTEGER,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      emise_le TIMESTAMPTZ,
+      UNIQUE (entite_id, numero)
+    );
+    ALTER TABLE operations ADD COLUMN IF NOT EXISTS facture_vente_id INTEGER;
     ALTER TABLE fournisseurs ADD COLUMN IF NOT EXISTS encaissement_auto BOOLEAN NOT NULL DEFAULT FALSE;
     ALTER TABLE operations ADD COLUMN IF NOT EXISTS fournisseur_id INTEGER REFERENCES fournisseurs(id) ON DELETE SET NULL;
     CREATE TABLE IF NOT EXISTS reglements (
@@ -202,6 +234,29 @@ async function init() {
   await pool.query(`UPDATE emails_recus SET statut='pas_facture'
     WHERE statut IN ('en_cours','traite') AND (de ILIKE '%@accounts.google.com>%' OR de ILIKE '%mail-noreply@google.com>%')`);
   // Mode de récupération déduit des réglages existants (une seule fois).
+  // Simple and New : exercice du 1er octobre au 30 septembre (les autres : année civile).
+  await pool.query('CREATE TABLE IF NOT EXISTS app_config (cle TEXT PRIMARY KEY, valeur TEXT NOT NULL)');
+  if (!(await pool.query("SELECT 1 FROM app_config WHERE cle='exercice_san'")).rows[0]) {
+    await pool.query("UPDATE entites SET debut_exercice = 10 WHERE nom = 'Simple and New'");
+    await pool.query("INSERT INTO app_config (cle, valeur) VALUES ('exercice_san', '1') ON CONFLICT DO NOTHING");
+  }
+  // Modèle de facture de vente de Simple and New (d'après les factures F120 à F128) ; numérotation reprise à F129.
+  if (!(await pool.query("SELECT 1 FROM app_config WHERE cle='factures_san'")).rows[0]) {
+    const fs = require('fs'), path = require('path');
+    const logo = fs.readFileSync(path.join(__dirname, 'public', 'logos', 'simple-and-new.png'));
+    await pool.query(`UPDATE entites SET facture_prefixe = 'F', facture_prochain = 129,
+        facture_tva_intra = 'FR 79 539377705', facture_mention_tva = 'TVA collectée sur les encaissements',
+        facture_banque = $1, facture_conditions = '30 jours date de facture', facture_penalites = $2, facture_pied = $3,
+        logo = $4, logo_type = 'image/png'
+      WHERE nom = 'Simple and New'`,
+      ['CIC - Paris Les Ternes\n(FR 76) 30066 – 10181 – 00020140901 - 80',
+        "En cas de retard de paiement, les pénalités seront calculées sur la base de 1,5 fois et demi le taux d'intérêt légal, par jour de retard.\nEn outre, une pénalité forfaitaire de 40 euros sera due au titre des frais de recouvrement.",
+        'SIMPLE AND NEW - SAS au capital de 10 000 euros - 539 377 705 RCS NANTERRE\nSIRET : 539 377 705 00022; N°TVA intracommunautaire : FR79539377705\n16 rue Tony Garnier – 92100 Boulogne-Billancourt\nIBAN : FR76 3006 6101 8100 0201 4090 180',
+        logo]);
+    await pool.query(`UPDATE entites SET facture_prefixe = COALESCE(facture_prefixe, CASE nom WHEN 'SCI E NIZARD' THEN 'SCI-' ELSE nom || '-' END)
+      WHERE nom <> 'Simple and New'`);
+    await pool.query("INSERT INTO app_config (cle, valeur) VALUES ('factures_san', '1') ON CONFLICT DO NOTHING");
+  }
   // Virements Stripe reçus : comptés en revenus automatiquement.
   await pool.query(`UPDATE fournisseurs SET encaissement_auto = TRUE WHERE cle ~ '(^| )stripe( |$)' AND NOT encaissement_auto`);
   // « Sans facture » fusionné dans « Rien à faire ».

@@ -1,0 +1,68 @@
+<% const t = f.totaux, m = (x) => x ? fmt(x) : '-', d = f.date ? new Date(f.date).toLocaleDateString('fr-FR') : '';
+   const br = (s) => (s || '').split('\n'); %>
+<% if (!impression) { %><%- include('partials/header') %>
+<div class="head">
+  <h1><a href="/factures-vente" class="muted">Factures de ventes</a> › <%= f.numero ? 'Facture ' + f.numero : 'Brouillon' %> — <%= f.entite %></h1>
+  <span>
+    <% if (f.statut === 'brouillon') { %>
+      <a class="button secondary" href="/factures-vente/<%= f.id %>/modifier">Modifier</a>
+      <form method="post" action="/factures-vente/<%= f.id %>/supprimer" class="inline" onsubmit="return confirm('Supprimer ce brouillon ?')"><button class="secondary">Supprimer</button></form>
+      <form method="post" action="/factures-vente/<%= f.id %>/emettre" class="inline" onsubmit="return confirm('Émettre la facture ? Elle recevra le numéro <%= (f.facture_prefixe || '') + f.facture_prochain %> et ne pourra plus être modifiée.')"><button>Émettre (n° <%= (f.facture_prefixe || '') + f.facture_prochain %>)</button></form>
+    <% } else { %>
+      <a class="button" href="/factures-vente/<%= f.id %>?imprimer=1" target="_blank">Imprimer / PDF</a>
+      <% if (f.operation_id) { %><a class="button secondary" href="/operations/<%= f.operation_id %>/edit">Opération (<%= f.reglement || 'Non réglé' %>)</a><% } %>
+    <% } %>
+  </span>
+</div>
+<link rel="stylesheet" href="/static/facture.css">
+<div class="fv-apercu">
+<% } else { %><!DOCTYPE html><html lang="fr"><head><meta charset="utf-8"><title>Facture <%= f.numero %> — <%= f.entite %></title><link rel="stylesheet" href="/static/facture.css"></head><body onload="window.print()"><% } %>
+<div class="fv">
+  <div class="fv-logo"><% if (f.a_logo) { %><img src="/entites/<%= f.entite_id %>/logo" alt="<%= f.entite %>"><% } else { %><strong class="fv-nom"><%= f.entite %></strong><% } %></div>
+  <div class="fv-entete">
+    <div class="fv-boite">
+      <strong>FACTURE<%= f.statut === 'brouillon' ? ' (brouillon)' : '' %></strong><br>
+      N° : <%= f.numero || '—' %><br>
+      Date : <%= d %>
+      <% if (f.bon_commande) { %><br>Bon de commande : <%= f.bon_commande %><% } %>
+    </div>
+    <div class="fv-boite"><%= f.client_nom %><% br(f.client_adresse).forEach(x => { %><br><%= x %><% }) %><% if (f.client_tva) { %><br>TVA intracommunautaire <%= f.client_tva %><% } %></div>
+  </div>
+
+  <h3>1. PRESTATION</h3>
+  <table class="fv-t">
+    <tr class="fv-th"><th>Phases</th><th class="r">Montant [€HT]</th></tr>
+    <% f.lignes.forEach(l => { %><tr><td class="fv-ind"><%= l.designation %></td><td class="r"><%= fmt(l.montant) %></td></tr><% }) %>
+    <tr class="fv-tot"><td class="r">TOTAL PRESTATION</td><td class="r"><%= fmt(t.ht) %></td></tr>
+  </table>
+
+  <h3>2. FRAIS</h3>
+  <table class="fv-t">
+    <tr class="fv-th"><th class="fv-milieu">DESIGNATION</th><th class="r">Montant [€TTC]</th></tr>
+    <% if (!f.frais.length) { %><tr><td>Tous frais inclus</td><td class="r">-</td></tr><% } %>
+    <% f.frais.forEach(l => { %><tr><td><%= l.designation %></td><td class="r"><%= fmt(l.montant) %></td></tr><% }) %>
+  </table>
+
+  <h3>TOTAL</h3>
+  <table class="fv-t fv-total">
+    <tr class="fv-th"><th>DESIGNATION</th><th class="r">Montant [€]</th></tr>
+    <tr><td>TOTAL PRESTATION HT</td><td class="r"><%= fmt(t.ht) %></td></tr>
+    <tr><td>TVA <%= String(Number(f.taux_tva)).replace('.', ',') %>%</td><td class="r"><%= fmt(t.tva) %></td></tr>
+    <tr class="fv-sep"><td>TOTAL PRESTATION TTC</td><td class="r"><%= fmt(t.ttcPrestation) %></td></tr>
+    <tr><td>NOTES DE FRAIS TTC</td><td class="r"><%= m(t.frais) %></td></tr>
+    <tr class="fv-sep"><td>TOTAL TTC</td><td class="r"><%= fmt(t.ttc) %></td></tr>
+    <tr><td>Acompte</td><td class="r"><%= m(t.acompte) %></td></tr>
+    <tr class="fv-apayer"><td>TOTAL à payer</td><td class="r"><%= fmt(t.aPayer) %></td></tr>
+  </table>
+
+  <div class="fv-cadre"><span>Conditions de règlement :</span><span><%= f.conditions || '' %></span></div>
+  <% if (f.facture_tva_intra || f.facture_mention_tva) { %>
+  <div class="fv-cadre"><span><strong>TVA intracommunautaire <%= f.entite %> :</strong><% if (f.facture_mention_tva) { %><br><%= f.facture_mention_tva %><% } %></span><span><%= f.facture_tva_intra || '' %></span></div>
+  <% } %>
+  <% if (f.facture_banque) { %>
+  <div class="fv-cadre"><span>Références Bancaires :</span><span><% br(f.facture_banque).forEach((x, i) => { %><%= i ? '' : '' %><% if (i) { %><br><em><%= x %></em><% } else { %><%= x %><% } %><% }) %></span></div>
+  <% } %>
+  <% if (f.facture_penalites) { %><p class="fv-penal"><% br(f.facture_penalites).forEach((x, i) => { %><%= x %><br><% }) %></p><% } %>
+  <% if (f.facture_pied) { %><p class="fv-pied"><% br(f.facture_pied).forEach(x => { %><%= x %><br><% }) %></p><% } %>
+</div>
+<% if (!impression) { %></div><%- include('partials/footer') %><% } else { %></body></html><% } %>

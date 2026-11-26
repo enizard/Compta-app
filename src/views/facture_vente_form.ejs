@@ -1,0 +1,68 @@
+<%- include('partials/header') %>
+<div class="head"><h1><a href="/factures-vente" class="muted">Factures de ventes</a> › <%= f.id ? 'Modifier le brouillon' : 'Nouvelle facture' %> — <%= entite.nom %></h1></div>
+<form method="post" action="/factures-vente<%= f.id ? '/' + f.id : '' %>" class="card">
+  <input type="hidden" name="entite_id" value="<%= entite.id %>">
+  <fieldset><legend>Facture</legend>
+    <div class="grid">
+      <label>Numéro<input value="Attribué à l'émission (prochain : <%= (entite.facture_prefixe || '') + entite.facture_prochain %>)" disabled></label>
+      <label>Date<input type="date" name="date" value="<%= f.date ? (f.date instanceof Date ? f.date.toISOString().slice(0, 10) : f.date) : '' %>"></label>
+      <label>Bon de commande<input name="bon_commande" value="<%= f.bon_commande || '' %>" placeholder="facultatif"></label>
+    </div>
+  </fieldset>
+  <fieldset><legend>Client</legend>
+    <div class="grid">
+      <label>Nom<input name="client_nom" list="clients" value="<%= f.client_nom || '' %>" required onchange="remplirClient(this.value)"></label>
+      <label>N° TVA intracommunautaire<input name="client_tva" value="<%= f.client_tva || '' %>" placeholder="facultatif"></label>
+      <label class="wide">Adresse<textarea name="client_adresse" rows="3"><%= f.client_adresse || '' %></textarea></label>
+    </div>
+    <datalist id="clients"><% clients.forEach(c => { %><option value="<%= c.client_nom %>"><% }) %></datalist>
+  </fieldset>
+  <fieldset><legend>1. Prestation (montants HT)</legend>
+    <div id="lignes"><% (f.lignes.length ? f.lignes : [{}]).forEach(l => { %>
+      <div class="ligne-fv"><input name="l_designation" value="<%= l.designation || '' %>" placeholder="Désignation"><input name="l_montant" inputmode="decimal" value="<%= l.montant != null ? String(l.montant).replace('.', ',') : '' %>" placeholder="Montant HT" oninput="calc()"></div>
+    <% }) %></div>
+    <button type="button" class="secondary" onclick="ajouter('lignes', 'l')">+ ligne</button>
+  </fieldset>
+  <fieldset><legend>2. Frais (montants TTC, facultatif)</legend>
+    <div id="frais"><% f.frais.forEach(l => { %>
+      <div class="ligne-fv"><input name="f_designation" value="<%= l.designation || '' %>" placeholder="Désignation"><input name="f_montant" inputmode="decimal" value="<%= String(l.montant).replace('.', ',') %>" placeholder="Montant TTC" oninput="calc()"></div>
+    <% }) %></div>
+    <button type="button" class="secondary" onclick="ajouter('frais', 'f')">+ frais</button>
+  </fieldset>
+  <fieldset><legend>Total</legend>
+    <div class="grid">
+      <label>Taux de TVA (%)<input name="taux_tva" inputmode="decimal" value="<%= String(f.taux_tva).replace('.', ',') %>" oninput="calc()"></label>
+      <label>Acompte déjà versé (€)<input name="acompte" inputmode="decimal" value="<%= Number(f.acompte) ? String(f.acompte).replace('.', ',') : '' %>" oninput="calc()"></label>
+      <label class="wide">Conditions de règlement<input name="conditions" value="<%= f.conditions || '' %>" placeholder="ex. 30 jours date de facture"></label>
+    </div>
+    <p id="totaux" class="muted"></p>
+  </fieldset>
+  <button>Enregistrer le brouillon</button>
+</form>
+<script>
+  const CLIENTS = <%- JSON.stringify(clients).replace(/</g, '\\u003c') %>;
+  function remplirClient(nom) {
+    const c = CLIENTS.find((x) => x.client_nom.toLowerCase() === nom.toLowerCase());
+    if (!c) return;
+    const f = document.forms[0];
+    if (!f.client_adresse.value) f.client_adresse.value = c.client_adresse || '';
+    if (!f.client_tva.value) f.client_tva.value = c.client_tva || '';
+  }
+  function ajouter(id, p) {
+    const d = document.createElement('div'); d.className = 'ligne-fv';
+    d.innerHTML = `<input name="${p}_designation" placeholder="Désignation"><input name="${p}_montant" inputmode="decimal" placeholder="Montant ${p === 'l' ? 'HT' : 'TTC'}" oninput="calc()">`;
+    document.getElementById(id).appendChild(d);
+  }
+  const n = (v) => parseFloat(String(v || '').replace(/\s/g, '').replace(',', '.')) || 0;
+  const e = (x) => x.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  function calc() {
+    const f = document.forms[0];
+    const ht = [...document.getElementsByName('l_montant')].reduce((s, i) => s + n(i.value), 0);
+    const tva = Math.round(ht * n(f.taux_tva.value)) / 100;
+    const fr = [...document.getElementsByName('f_montant')].reduce((s, i) => s + n(i.value), 0);
+    const ttc = ht + tva + fr;
+    document.getElementById('totaux').textContent = `HT ${e(ht)} € · TVA ${e(tva)} € · Total TTC ${e(ttc)} € · À payer ${e(ttc - n(f.acompte.value))} €`;
+  }
+  calc();
+</script>
+<%- include('partials/footer') %>

@@ -1,19 +1,19 @@
 <%- include('partials/header') %>
 <div class="head">
-  <h1>Compte de résultat <%= annee %></h1>
-  <form method="get" class="inline">Exercice
+  <h1>Compte de résultat</h1>
+  <form method="get" class="inline">Exercice clos en
     <select name="annee" onchange="this.form.submit()">
       <% (annees.length ? annees : [annee]).forEach(a => { %><option <%= a === annee ? 'selected' : '' %>><%= a %></option><% }) %>
     </select>
   </form>
 </div>
-<p class="muted">Simplifié, montants hors taxes, à partir des opérations enregistrées (date de la facture).</p>
+<p class="muted">Simplifié, montants hors taxes, à partir des opérations enregistrées (date de la facture), sur l'exercice comptable de chaque société.</p>
 <% const cols = entites.concat(revenus.concat(couts).some(r => r.v[0]) ? [{ id: 0, nom: 'Société inconnue' }] : []);
    const tot = (lignes, id) => lignes.reduce((s, r) => s + (r.v[id] || 0), 0);
    const tg = (lignes) => cols.reduce((s, c) => s + tot(lignes, c.id), 0);
    const m = (x) => x ? fmt(x) : '–'; %>
 <table class="resultat">
-  <thead><tr><th></th><% cols.forEach(c => { %><th class="r"><%= c.nom %></th><% }) %><th class="r">Total</th></tr></thead>
+  <thead><tr><th></th><% cols.forEach(c => { %><th class="r"><%= c.nom %><% if (c.periode) { %><br><small class="muted" style="font-weight:400">Exercice <%= c.exercice %><br><%= c.periode %></small><% } %></th><% }) %><th class="r">Total</th></tr></thead>
   <tbody>
     <tr class="titre"><td colspan="<%= cols.length + 2 %>">Revenus</td></tr>
     <% revenus.forEach(r => { %><tr><td><%= r.nom %></td><% cols.forEach(c => { %><td class="r"><%= m(r.v[c.id]) %></td><% }) %><td class="r"><%= m(Object.values(r.v).reduce((s, x) => s + x, 0)) %></td></tr><% }) %>
@@ -27,7 +27,7 @@
       <% const g = tg(revenus) - tg(couts); %><td class="r <%= g < 0 ? 'neg' : 'pos' %>"><%= fmt(g) %></td></tr>
   </tbody>
 </table>
-<h2>Dus de trésorerie au 31/12/<%= annee %></h2>
+<h2>Dus de trésorerie au <%= finMax %></h2>
 <p class="muted"><small>Dépenses d'une société payées depuis le compte d'une autre (et recettes encaissées sur le compte d'une autre), cumulées. <span class="pos">Positif</span> : la société de la colonne doit recevoir ; <span class="neg">négatif</span> : elle doit payer.</small></p>
 <% const contreparties = cols.filter(c => c.id).map(c => ({ id: c.id, nom: c.nom })).concat([{ id: -1, nom: 'Associé (avances en compte courant)' }]);
    const lignesDus = contreparties.filter(cp => cols.some(c => soldes[c.id] && Math.abs(soldes[c.id][cp.id] || 0) >= 0.01)); %>
@@ -41,7 +41,7 @@
 </table>
 <% } %>
 <% if (Object.keys(nonRappro).length) { %>
-<p class="muted"><small>Non compris (mouvements bancaires <%= annee %> pas encore rapprochés, TTC) :
+<p class="muted"><small>Non compris (mouvements bancaires de l'exercice pas encore rapprochés, TTC) :
   <% cols.filter(c => nonRappro[c.id]).forEach((c, i) => { const n = nonRappro[c.id]; %><%= i ? ' · ' : '' %><%= c.nom %> : entrées <%= fmt(n.entrees) %>, sorties <%= fmt(n.sorties) %><% }) %>
   — <a href="/rapprochement">voir les relevés</a></small></p>
 <% } %>

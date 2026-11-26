@@ -397,20 +397,29 @@ async function creerOperationsAuto(lotId) {
       if (dbl[0].meme_email) await pool.query("UPDATE depots SET statut='ignore' WHERE id=$1", [d.id]);
       continue;
     }
+    // Facture de vente déjà enregistrée (même société, même numéro, autre version du document) : reste à valider.
+    if (r.sens === 'vente' && r.numero_facture) {
+      const { rows: memeNum } = await pool.query(`SELECT 1 FROM operations o JOIN entites e ON e.id = o.entite_id
+        WHERE o.type = 'recette' AND e.nom = $1 AND lower(o.numero_facture) = lower($2) LIMIT 1`, [r.societe_nom, r.numero_facture]);
+      if (memeNum[0]) continue;
+    }
     const ent = entites.find((e) => e.nom === r.societe_nom);
-    const cat = categories.find((c) => c.nom === r.categorie);
+    // Facture de vente émise par l'une de nos sociétés : recette « Ventes / honoraires », non réglée jusqu'au rapprochement.
+    const vente = r.sens === 'vente';
+    const cat = categories.find((c) => c.nom === (vente && !/ventes|loyers per/i.test(r.categorie || '') ? 'Ventes / honoraires' : r.categorie));
     const { rows: ins } = await pool.query(
       `INSERT INTO operations (entite_id, date_op, type, categorie_id, libelle, tiers, montant_ttc, tva, notes, paiement, carte,
-         justif_nom, justif_type, justif_data, created_by, montant_debite, numero_facture, date_paiement)
-       VALUES ($1,$2,'depense',$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) RETURNING id`,
+         justif_nom, justif_type, justif_data, created_by, montant_debite, numero_facture, date_paiement, reglement)
+       VALUES ($1,$2,$18,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$19) RETURNING id`,
       [ent ? ent.id : null, r.date, cat ? cat.id : null, r.libelle || `Facture ${r.fournisseur || ''}`.trim(), r.fournisseur || null,
         r.montant_ttc, r.tva || 0,
         l[0].info + (r.montant_paye && Math.abs(r.montant_paye - r.montant_ttc) > 0.01 ? ` — montant débité : ${r.montant_paye} € (crédit ou avoir appliqué)` : ''),
         await releves.paiementDepuisDocument(r), r.carte || null,
         d.nom, d.mimetype, d.data, l[0].created_by,
         r.montant_paye && Math.abs(r.montant_paye - r.montant_ttc) > 0.01 ? r.montant_paye : null,
-        r.numero_facture || null, ['recu', 'facturette'].includes(r.type_document) ? r.date : null]);
-    await fournisseurs.lierOperation(ins[0].id, r.fournisseur);
+        r.numero_facture || null, ['recu', 'facturette'].includes(r.type_document) ? r.date : null,
+        vente ? 'recette' : 'depense', vente ? 'Non réglé' : null]);
+    if (!vente) await fournisseurs.lierOperation(ins[0].id, r.fournisseur);
     await pool.query("UPDATE depots SET statut='enregistre', operation_id=$2 WHERE id=$1", [d.id, ins[0].id]);
     crees++;
   }
@@ -560,13 +569,15 @@ app.get('/depot/:id', requireAuth, async (req, res) => {
   const r = d.resultat || {};
   const { entites, categories } = await refs();
   const ent = entites.find((e) => e.nom === r.societe_nom);
-  const cat = categories.find((c) => c.nom === r.categorie);
+  const vente = r.sens === 'vente';
+  const cat = categories.find((c) => c.nom === (vente && !/ventes|loyers per/i.test(r.categorie || '') ? 'Ventes / honoraires' : r.categorie));
   const op = {
     date_op: r.date || new Date().toISOString().slice(0, 10),
-    type: 'depense',
+    type: vente ? 'recette' : 'depense',
+    reglement: vente ? 'Non réglé' : undefined,
     entite_id: ent ? ent.id : null,
     categorie_id: cat ? cat.id : null,
-    libelle: r.libelle || (r.fournisseur ? `Achat ${r.fournisseur}` : ''),
+    libelle: r.libelle || (r.fournisseur ? `${vente ? 'Facture' : 'Achat'} ${r.fournisseur}` : ''),
     tiers: r.fournisseur || '',
     montant_ttc: r.montant_ttc,
     tva: r.tva,
@@ -775,7 +786,7 @@ app.post('/operations', requireAuth, upload.single('justificatif'), async (req, 
       WHERE id=$15`,
       [v[0], v[1], v[2], v[3], v[4], v[5], v[7], v[8] || 'Justificatif déposé et rattaché à l\'opération du relevé', v[10], v[11], v[14],
         f.nom, f.type, f.data, provisoire]);
-    await fournisseurs.lierOperation(provisoire, v[5]);
+    if (v[2] === 'depense') await fournisseurs.lierOperation(provisoire, v[5]);
     flash(req, 'Justificatif rattaché à l\'opération déjà présente sur le relevé.');
     if (depotId) {
       await pool.query("UPDATE depots SET statut='enregistre', operation_id=$2 WHERE id=$1", [depotId, provisoire]);
@@ -789,7 +800,7 @@ app.post('/operations', requireAuth, upload.single('justificatif'), async (req, 
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20) RETURNING id`,
     [...v, f ? f.nom : null, f ? f.type : null, f ? f.data : null, req.session.user.id]);
   const opId = ins[0].id;
-  await fournisseurs.lierOperation(opId, v[5]);
+  if (v[2] === 'depense') await fournisseurs.lierOperation(opId, v[5]);
   await apprendreCarte(v[10], v[9]);
   await enregistrerReglements(opId, req.body, v[6]);
   if (req.body.ligne_id) {
@@ -829,7 +840,7 @@ app.post('/operations/:id', requireAuth, upload.single('justificatif'), async (r
   await pool.query(
     `UPDATE operations SET entite_id=$1, date_op=$2, type=$3, categorie_id=$4, libelle=$5, tiers=$6,
        montant_ttc=$7, tva=$8, notes=$9, paiement=$10, carte=$11, livraison=$12, reglement=$13, montant_debite=$14, numero_facture=$15, date_paiement=$16, updated_at=NOW() WHERE id=$17`, [...v, req.params.id]);
-  if (v[5]) await fournisseurs.lierOperation(req.params.id, v[5]);
+  if (v[5] && v[2] === 'depense') await fournisseurs.lierOperation(req.params.id, v[5]);
   await apprendreCarte(v[10], v[9]);
   await enregistrerReglements(req.params.id, req.body, v[6]);
   if (req.file) {
@@ -1240,22 +1251,200 @@ app.get('/synthese', requireAuth, async (req, res) => {
 });
 
 // ---------- compte de résultat simplifié (HT, par société et par catégorie) ----------
+// Réglages d'une société : exercice comptable et modèle de facture de vente.
+app.post('/admin/entites/:id', requireAdmin, upload.single('logo'), async (req, res) => {
+  const b = req.body, t = (x) => (x || '').trim() || null;
+  await pool.query(`UPDATE entites SET debut_exercice=$1, facture_prefixe=$2, facture_prochain=$3, facture_tva_intra=$4, facture_mention_tva=$5,
+      facture_banque=$6, facture_conditions=$7, facture_penalites=$8, facture_pied=$9 WHERE id=$10`,
+    [Math.min(12, Math.max(1, Number(b.debut_exercice) || 1)), b.facture_prefixe ?? '', Math.max(1, Number(b.facture_prochain) || 1),
+      t(b.facture_tva_intra), t(b.facture_mention_tva), t(b.facture_banque), t(b.facture_conditions), t(b.facture_penalites), t(b.facture_pied),
+      req.params.id]);
+  if (req.file && /^image\//.test(req.file.mimetype)) {
+    await pool.query('UPDATE entites SET logo=$1, logo_type=$2 WHERE id=$3', [req.file.buffer, req.file.mimetype, req.params.id]);
+  }
+  flash(req, 'Réglages de la société enregistrés.');
+  res.redirect('/admin#societes');
+});
+
+// ---------- factures de vente (numérotation propre à chaque société) ----------
+const num = (x) => { const n = parseFloat(String(x ?? '').replace(/\s/g, '').replace(',', '.')); return Number.isFinite(n) ? n : 0; };
+function totauxFacture(f) {
+  const r2 = (x) => Math.round(x * 100) / 100;
+  const ht = r2((f.lignes || []).reduce((s, l) => s + num(l.montant), 0));
+  const tva = r2(ht * num(f.taux_tva) / 100);
+  const frais = r2((f.frais || []).reduce((s, l) => s + num(l.montant), 0));
+  const ttc = r2(ht + tva + frais);
+  return { ht, tva, ttcPrestation: r2(ht + tva), frais, ttc, acompte: num(f.acompte), aPayer: r2(ttc - num(f.acompte)) };
+}
+function factureDepuisForm(b) {
+  const tab = (x) => (Array.isArray(x) ? x : x == null ? [] : [x]);
+  const paires = (d, m) => tab(d).map((x, i) => ({ designation: String(x || '').trim(), montant: num(tab(m)[i]) }))
+    .filter((l) => l.designation || l.montant);
+  return { entite_id: Number(b.entite_id), date: b.date || null, client_nom: (b.client_nom || '').trim(), client_adresse: (b.client_adresse || '').trim(),
+    client_tva: (b.client_tva || '').trim() || null, bon_commande: (b.bon_commande || '').trim() || null,
+    lignes: paires(b.l_designation, b.l_montant), frais: paires(b.f_designation, b.f_montant),
+    taux_tva: num(b.taux_tva), acompte: num(b.acompte), conditions: (b.conditions || '').trim() || null };
+}
+
+app.get('/factures-vente', requireAuth, async (req, res) => {
+  const { rows: entites } = await pool.query('SELECT id, nom, facture_prefixe, facture_prochain FROM entites ORDER BY nom');
+  const societe = Number(req.query.societe) || null;
+  const { rows: factures } = await pool.query(`
+    SELECT f.*, e.nom AS entite, o.reglement FROM factures_vente f JOIN entites e ON e.id = f.entite_id
+      LEFT JOIN operations o ON o.id = f.operation_id
+    WHERE ($1::int IS NULL OR f.entite_id = $1)
+    ORDER BY f.statut = 'brouillon' DESC, f.date DESC NULLS FIRST, f.id DESC`, [societe]);
+  factures.forEach((f) => { f.totaux = totauxFacture(f); });
+  res.render('factures_vente', { entites, factures, societe });
+});
+
+async function clientsConnus() {
+  const { rows } = await pool.query(`SELECT DISTINCT ON (lower(client_nom)) client_nom, client_adresse, client_tva
+    FROM factures_vente WHERE client_nom <> '' ORDER BY lower(client_nom), id DESC`);
+  return rows;
+}
+
+app.get('/factures-vente/nouvelle', requireAuth, async (req, res) => {
+  const { rows: e } = await pool.query('SELECT * FROM entites WHERE id=$1', [req.query.entite]);
+  if (!e[0]) return res.redirect('/factures-vente');
+  const f = { entite_id: e[0].id, date: new Date().toISOString().slice(0, 10), lignes: [{}], frais: [], taux_tva: 20, acompte: 0,
+    conditions: e[0].facture_conditions || '' };
+  res.render('facture_vente_form', { f, entite: e[0], clients: await clientsConnus() });
+});
+
+app.post('/factures-vente', requireAuth, async (req, res) => {
+  const f = factureDepuisForm(req.body);
+  const { rows } = await pool.query(`INSERT INTO factures_vente (entite_id, date, client_nom, client_adresse, client_tva, bon_commande,
+      lignes, frais, taux_tva, acompte, conditions) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id`,
+    [f.entite_id, f.date, f.client_nom, f.client_adresse, f.client_tva, f.bon_commande, JSON.stringify(f.lignes), JSON.stringify(f.frais),
+      f.taux_tva, f.acompte, f.conditions]);
+  flash(req, 'Brouillon enregistré. Vérifiez-le puis cliquez sur « Émettre » pour lui attribuer son numéro.');
+  res.redirect(`/factures-vente/${rows[0].id}`);
+});
+
+async function factureVente(id) {
+  const { rows } = await pool.query(`SELECT f.*, e.nom AS entite, e.facture_tva_intra, e.facture_mention_tva, e.facture_banque,
+      e.facture_penalites, e.facture_pied, e.facture_prefixe, e.facture_prochain, (e.logo IS NOT NULL) AS a_logo, o.reglement
+    FROM factures_vente f JOIN entites e ON e.id = f.entite_id LEFT JOIN operations o ON o.id = f.operation_id WHERE f.id=$1`, [id]);
+  if (rows[0]) rows[0].totaux = totauxFacture(rows[0]);
+  return rows[0];
+}
+
+app.get('/factures-vente/:id', requireAuth, async (req, res) => {
+  const f = await factureVente(req.params.id);
+  if (!f) return res.redirect('/factures-vente');
+  res.render('facture_vente', { f, impression: req.query.imprimer === '1' });
+});
+
+app.get('/factures-vente/:id/modifier', requireAuth, async (req, res) => {
+  const f = await factureVente(req.params.id);
+  if (!f || f.statut !== 'brouillon') return res.redirect(`/factures-vente/${req.params.id}`);
+  const { rows: e } = await pool.query('SELECT * FROM entites WHERE id=$1', [f.entite_id]);
+  res.render('facture_vente_form', { f, entite: e[0], clients: await clientsConnus() });
+});
+
+app.post('/factures-vente/:id', requireAuth, async (req, res) => {
+  const f = factureDepuisForm(req.body);
+  await pool.query(`UPDATE factures_vente SET date=$1, client_nom=$2, client_adresse=$3, client_tva=$4, bon_commande=$5, lignes=$6, frais=$7,
+      taux_tva=$8, acompte=$9, conditions=$10 WHERE id=$11 AND statut='brouillon'`,
+    [f.date, f.client_nom, f.client_adresse, f.client_tva, f.bon_commande, JSON.stringify(f.lignes), JSON.stringify(f.frais),
+      f.taux_tva, f.acompte, f.conditions, req.params.id]);
+  res.redirect(`/factures-vente/${req.params.id}`);
+});
+
+app.post('/factures-vente/:id/supprimer', requireAuth, async (req, res) => {
+  await pool.query("DELETE FROM factures_vente WHERE id=$1 AND statut='brouillon'", [req.params.id]);
+  flash(req, 'Brouillon supprimé.');
+  res.redirect('/factures-vente');
+});
+
+// Émission : numéro suivant de la société (attribué une seule fois, sans trou), puis recette « Ventes / honoraires » non réglée,
+// qui sera rapprochée de l'encaissement sur le relevé.
+app.post('/factures-vente/:id/emettre', requireAuth, async (req, res) => {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const { rows: fr } = await client.query("SELECT * FROM factures_vente WHERE id=$1 AND statut='brouillon' FOR UPDATE", [req.params.id]);
+    const f = fr[0];
+    if (!f) { await client.query('ROLLBACK'); return res.redirect(`/factures-vente/${req.params.id}`); }
+    const t = totauxFacture(f);
+    if (!f.client_nom || !t.ht) {
+      await client.query('ROLLBACK');
+      flash(req, 'Client et au moins une ligne de prestation sont nécessaires pour émettre la facture.', 'err');
+      return res.redirect(`/factures-vente/${f.id}/modifier`);
+    }
+    const { rows: e } = await client.query(
+      'UPDATE entites SET facture_prochain = facture_prochain + 1 WHERE id=$1 RETURNING facture_prefixe, facture_prochain - 1 AS n', [f.entite_id]);
+    const numero = `${e[0].facture_prefixe || ''}${e[0].n}`;
+    const date = f.date || new Date().toISOString().slice(0, 10);
+    const { rows: cat } = await client.query("SELECT id FROM categories WHERE nom='Ventes / honoraires'");
+    const { rows: op } = await client.query(`INSERT INTO operations (entite_id, date_op, type, categorie_id, libelle, tiers, montant_ttc, tva,
+        notes, numero_facture, reglement, facture_vente_id, created_by)
+      VALUES ($1,$2,'recette',$3,$4,$5,$6,$7,'Facture de vente émise depuis le logiciel',$8,'Non réglé',$9,$10) RETURNING id`,
+      [f.entite_id, date, cat[0] ? cat[0].id : null, (f.lignes[0] && f.lignes[0].designation) || `Facture ${numero}`, f.client_nom,
+        t.ttc, t.tva, numero, f.id, req.session.user.id]);
+    await client.query("UPDATE factures_vente SET numero=$1, date=$2, statut='emise', emise_le=NOW(), operation_id=$3 WHERE id=$4",
+      [numero, date, op[0].id, f.id]);
+    await client.query('COMMIT');
+    flash(req, `Facture ${numero} émise et enregistrée en recette.`);
+  } catch (e) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw e;
+  } finally {
+    client.release();
+  }
+  await releves.rapprocher();
+  res.redirect(`/factures-vente/${req.params.id}`);
+});
+
+app.get('/entites/:id/logo', requireAuth, async (req, res) => {
+  const { rows } = await pool.query('SELECT logo, logo_type FROM entites WHERE id=$1', [req.params.id]);
+  if (!rows[0] || !rows[0].logo) return res.status(404).send('');
+  res.set('Content-Type', rows[0].logo_type || 'image/png');
+  res.send(rows[0].logo);
+});
+
+// Période d'un exercice clos en `annee` pour une société commençant au mois `debut` (1 = année civile).
+function periodeExercice(debut, annee) {
+  const d = Number(debut) || 1;
+  const pad = (n) => String(n).padStart(2, '0');
+  if (d === 1) return { debut: `${annee}-01-01`, fin: `${annee}-12-31` };
+  const finMois = d - 1;
+  const dernier = new Date(Date.UTC(annee, finMois, 0)).getUTCDate();
+  return { debut: `${annee - 1}-${pad(d)}-01`, fin: `${annee}-${pad(finMois)}-${pad(dernier)}` };
+}
+const frDate = (iso) => iso.split('-').reverse().join('/');
+
 app.get('/resultat', requireAuth, async (req, res) => {
-  const { rows: annees } = await pool.query('SELECT DISTINCT EXTRACT(YEAR FROM date_op)::int AS a FROM operations ORDER BY a DESC');
-  const annee = Number(req.query.annee) || (annees[0] ? annees[0].a : new Date().getFullYear());
-  const { rows: entites } = await pool.query('SELECT id, nom FROM entites ORDER BY nom');
-  const { rows } = await pool.query(`
+  const { rows: entites } = await pool.query('SELECT id, nom, debut_exercice FROM entites ORDER BY nom');
+  // Exercices proposés : clos l'année de chaque opération (ou l'année suivante pour les exercices décalés).
+  const { rows: ans } = await pool.query(`SELECT DISTINCT a FROM (
+      SELECT EXTRACT(YEAR FROM o.date_op)::int + CASE WHEN COALESCE(e.debut_exercice, 1) > 1
+        AND EXTRACT(MONTH FROM o.date_op) >= e.debut_exercice THEN 1 ELSE 0 END AS a
+      FROM operations o LEFT JOIN entites e ON e.id = o.entite_id) x ORDER BY a DESC`);
+  const annees = ans.map((x) => x.a);
+  const annee = Number(req.query.annee) || annees[0] || new Date().getFullYear();
+  const periodes = entites.map((e) => ({ id: e.id, ...periodeExercice(e.debut_exercice, annee) }));
+  periodes.push({ id: 0, ...periodeExercice(1, annee) });
+  for (const e of entites) {
+    const p = periodes.find((x) => x.id === e.id);
+    e.periode = `${frDate(p.debut)} – ${frDate(p.fin)}`;
+    e.exercice = e.debut_exercice > 1 ? `${annee - 1}-${annee}` : String(annee);
+  }
+  const P = [periodes.map((p) => p.id), periodes.map((p) => p.debut), periodes.map((p) => p.fin)];
+  const cte = `WITH p AS (SELECT * FROM unnest($1::int[], $2::date[], $3::date[]) AS t(id, debut, fin))`;
+  const { rows } = await pool.query(`${cte}
     SELECT o.type, COALESCE(c.nom, 'Non classé') AS categorie, o.entite_id,
       SUM(o.montant_ttc - COALESCE(o.tva, 0)) AS ht
     FROM operations o LEFT JOIN categories c ON c.id = o.categorie_id
-    WHERE EXTRACT(YEAR FROM o.date_op) = $1
-    GROUP BY 1, 2, 3`, [annee]);
-  // Mouvements bancaires de l'année sans opération (pas encore rapprochés) : non compris, signalés à part.
-  const { rows: nr } = await pool.query(`
+      JOIN p ON p.id = COALESCE(o.entite_id, 0) AND o.date_op BETWEEN p.debut AND p.fin
+    GROUP BY 1, 2, 3`, P);
+  // Mouvements bancaires de l'exercice sans opération (pas encore rapprochés) : non compris, signalés à part.
+  const { rows: nr } = await pool.query(`${cte}
     SELECT c.entite_id, SUM(l.montant) FILTER (WHERE l.montant > 0) AS entrees, SUM(-l.montant) FILTER (WHERE l.montant < 0) AS sorties
-    FROM lignes l JOIN comptes c ON c.id = l.compte_id
-    WHERE EXTRACT(YEAR FROM l.date_op) = $1 AND l.operation_id IS NULL AND l.releve_carte_id IS NULL AND l.total_carte IS NULL AND NOT l.ignoree
-    GROUP BY 1`, [annee]);
+    FROM lignes l JOIN comptes c ON c.id = l.compte_id JOIN p ON p.id = COALESCE(c.entite_id, 0) AND l.date_op BETWEEN p.debut AND p.fin
+    WHERE l.operation_id IS NULL AND l.releve_carte_id IS NULL AND l.total_carte IS NULL AND NOT l.ignoree
+    GROUP BY 1`, P);
   const bloc = (type) => {
     const cats = {};
     for (const r of rows.filter((x) => x.type === type)) {
@@ -1266,16 +1455,17 @@ app.get('/resultat', requireAuth, async (req, res) => {
       Object.values(b.v).reduce((s, x) => s + x, 0) - Object.values(a.v).reduce((s, x) => s + x, 0));
   };
   // Dus de trésorerie : dépense d'une société payée depuis le compte d'une autre (ou recette encaissée sur le compte d'une
-  // autre) → la première doit le montant à la seconde. Avance CC : la société doit à l'associé. Cumul jusqu'à fin d'exercice.
+  // autre) → la première doit le montant à la seconde. Avance CC : la société doit à l'associé. Cumul à la fin de l'exercice.
+  const finMax = periodes.map((p) => p.fin).sort().pop();
   const { rows: dus } = await pool.query(`
     SELECT o.entite_id AS doit, c.entite_id AS a, SUM(CASE WHEN o.type = 'depense' THEN o.montant_ttc ELSE -o.montant_ttc END) AS montant
     FROM operations o JOIN lignes l ON l.operation_id = o.id JOIN comptes c ON c.id = l.compte_id
-    WHERE o.entite_id IS NOT NULL AND c.entite_id IS NOT NULL AND o.entite_id <> c.entite_id AND o.date_op <= make_date($1, 12, 31)
+    WHERE o.entite_id IS NOT NULL AND c.entite_id IS NOT NULL AND o.entite_id <> c.entite_id AND o.date_op <= $1::date
     GROUP BY 1, 2
     UNION ALL
     SELECT o.entite_id, -1, SUM(o.montant_ttc) FROM operations o
-    WHERE o.paiement LIKE 'Avance CC%' AND o.type = 'depense' AND o.entite_id IS NOT NULL AND o.date_op <= make_date($1, 12, 31)
-    GROUP BY 1`, [annee]);
+    WHERE o.paiement LIKE 'Avance CC%' AND o.type = 'depense' AND o.entite_id IS NOT NULL AND o.date_op <= $1::date
+    GROUP BY 1`, [finMax]);
   // Solde net par paire : positif = la société de la colonne est créancière de la contrepartie.
   const soldes = {};
   for (const d of dus) {
@@ -1283,14 +1473,18 @@ app.get('/resultat', requireAuth, async (req, res) => {
     soldes[d.doit] = soldes[d.doit] || {}; soldes[d.doit][d.a] = (soldes[d.doit][d.a] || 0) - m;
     if (d.a !== -1) { soldes[d.a] = soldes[d.a] || {}; soldes[d.a][d.doit] = (soldes[d.a][d.doit] || 0) + m; }
   }
-  res.render('resultat', { annee, soldes, annees: annees.map((x) => x.a), entites, revenus: bloc('recette'), couts: bloc('depense'),
+  res.render('resultat', { annee, soldes, annees, entites, finMax: frDate(finMax), revenus: bloc('recette'), couts: bloc('depense'),
     nonRappro: Object.fromEntries(nr.map((x) => [x.entite_id || 0, { entrees: Number(x.entrees || 0), sorties: Number(x.sorties || 0) }])) });
 });
 
 // ---------- administration ----------
 app.get('/admin', requireAdmin, async (req, res) => {
   const { rows: users } = await pool.query('SELECT id, nom, email, is_admin, created_at FROM users ORDER BY nom');
-  res.render('admin', { users, comptes: await listeComptes(), ...(await refs()) });
+  const { rows: societes } = await pool.query(`SELECT id, nom, debut_exercice, facture_prefixe, facture_prochain, facture_tva_intra,
+      facture_mention_tva, facture_banque, facture_conditions, facture_penalites, facture_pied, (logo IS NOT NULL) AS a_logo,
+      EXISTS (SELECT 1 FROM factures_vente f WHERE f.entite_id = entites.id AND f.statut = 'emise') AS a_factures
+    FROM entites ORDER BY nom`);
+  res.render('admin', { users, societes, comptes: await listeComptes(), ...(await refs()) });
 });
 
 app.post('/admin/users', requireAdmin, async (req, res) => {

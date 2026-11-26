@@ -1,0 +1,35 @@
+<%- include('partials/header') %>
+<div class="head">
+  <h1>Factures de ventes</h1>
+  <form method="get" action="/factures-vente/nouvelle" class="inline">
+    <select name="entite" required>
+      <option value="">Société émettrice…</option>
+      <% entites.forEach(e => { %><option value="<%= e.id %>"><%= e.nom %> (prochaine : <%= (e.facture_prefixe || '') + e.facture_prochain %>)</option><% }) %>
+    </select>
+    <button>Nouvelle facture</button>
+  </form>
+</div>
+<p class="muted">Chaque société a sa propre numérotation, continue et sans trou : le numéro est attribué à l'émission. Une facture émise devient une recette « Ventes / honoraires », rapprochée de l'encaissement sur le relevé.</p>
+<div class="barre-outils">
+  Société :
+  <a class="<%= !societe ? 'actif' : '' %>" href="/factures-vente">Toutes</a>
+  <% entites.forEach(e => { %> · <a class="<%= societe === e.id ? 'actif' : '' %>" href="/factures-vente?societe=<%= e.id %>"><%= e.nom %></a><% }) %>
+</div>
+<% if (!factures.length) { %><p class="muted">Aucune facture pour l'instant.</p><% } else { %>
+<table>
+  <thead><tr><th>N°</th><th>Date</th><th>Société</th><th>Client</th><th>Objet</th><th class="r">Total TTC</th><th>Statut</th></tr></thead>
+  <tbody>
+  <% factures.forEach(f => { %>
+    <tr class="cliquable" onclick="location.href='/factures-vente/<%= f.id %>'">
+      <td><strong><%= f.numero || '—' %></strong></td>
+      <td><%= f.date ? f.date.toLocaleDateString('fr-FR') : '' %></td>
+      <td><%= f.entite %></td><td><%= f.client_nom %></td>
+      <td><small><%= (f.lignes[0] || {}).designation || '' %></small></td>
+      <td class="r"><%= fmt(f.totaux.ttc) %></td>
+      <td><% if (f.statut === 'brouillon') { %><span class="warn">Brouillon</span><% } else if (f.reglement === 'Réglé') { %><span class="pos">✓ Réglée</span><% } else { %><span class="neg"><%= f.reglement === 'Partiellement réglé' ? 'Partiellement réglée' : 'Non réglée' %></span><% } %></td>
+    </tr>
+  <% }) %>
+  </tbody>
+</table>
+<% } %>
+<%- include('partials/footer') %>

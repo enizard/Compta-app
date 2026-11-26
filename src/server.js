@@ -1301,6 +1301,32 @@ app.post('/admin/entites/:id', requireAdmin, upload.single('logo'), async (req, 
   res.redirect('/admin#societes');
 });
 
+// Opérations sans société mais avec un justificatif : on relit le document pour y trouver la société destinataire.
+async function societesDepuisJustificatifs() {
+  if (!process.env.ANTHROPIC_API_KEY) return;
+  const { rows } = await pool.query(`SELECT id, justif_data, justif_type, montant_ttc FROM operations
+    WHERE entite_id IS NULL AND justif_data IS NOT NULL AND type = 'depense' ORDER BY id DESC LIMIT 200`);
+  const { entites, categories } = await refs();
+  let n = 0;
+  for (const o of rows) {
+    try {
+      const docs = await analyser(o.justif_data, o.justif_type, categories.map((c) => c.nom));
+      const d = docs.find((x) => x.societe_nom && (!x.montant_ttc || Math.abs(x.montant_ttc - Number(o.montant_ttc)) < 0.01)) || docs.find((x) => x.societe_nom);
+      const ent = d && entites.find((e) => e.nom === d.societe_nom);
+      if (ent) { await pool.query('UPDATE operations SET entite_id=$1 WHERE id=$2 AND entite_id IS NULL', [ent.id, o.id]); n++; }
+    } catch (e) { console.error('Société depuis justificatif :', e.message); }
+  }
+  if (n) console.log(`Société retrouvée sur ${n} justificatif(s).`);
+}
+setTimeout(async () => {
+  try {
+    const { rows } = await pool.query("SELECT 1 FROM app_config WHERE cle='societes_justifs'");
+    if (rows[0]) return;
+    await pool.query("INSERT INTO app_config (cle, valeur) VALUES ('societes_justifs', '1') ON CONFLICT DO NOTHING");
+    await societesDepuisJustificatifs();
+  } catch (e) { console.error(e.message); }
+}, 30000);
+
 // ---------- factures de vente (numérotation propre à chaque société) ----------
 const num = (x) => { const n = parseFloat(String(x ?? '').replace(/\s/g, '').replace(',', '.')); return Number.isFinite(n) ? n : 0; };
 function totauxFacture(f) {

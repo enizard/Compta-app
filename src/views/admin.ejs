@@ -1,6 +1,24 @@
 <%- include('partials/header') %>
 <h1>Administration</h1>
 
+<h2 id="comptes">Comptes bancaires</h2>
+<p class="muted">Société titulaire de chaque compte, reconnue automatiquement à l'import des relevés. À corriger seulement en cas d'erreur : les lignes du compte sont alors rapprochées avec les factures de la bonne société.</p>
+<% if (!comptes.length) { %><p class="muted">Aucun compte (aucun relevé importé).</p><% } else { %>
+<table>
+  <thead><tr><th>Compte</th><th>N° (4 derniers chiffres)</th><th>Société titulaire</th></tr></thead>
+  <tbody>
+  <% comptes.forEach(c => { %>
+    <tr><td><%= c.banque === 'AMEX' ? 'Carte AMEX' : c.nature === 'carte' ? 'Carte ' + c.banque : 'Compte ' + c.banque %></td><td>…<%= c.numero || '?' %></td>
+      <td><form method="post" action="/comptes/<%= c.id %>" class="inline"><input type="hidden" name="retour" value="admin">
+        <select name="entite_id" onchange="if (confirm('Changer la société titulaire de ce compte ?')) this.form.submit(); else this.form.reset();">
+          <option value="">— à préciser —</option>
+          <% entites.forEach(e => { %><option value="<%= e.id %>" <%= c.entite_id === e.id ? 'selected' : '' %>><%= e.nom %></option><% }) %>
+        </select></form></td></tr>
+  <% }) %>
+  </tbody>
+</table>
+<% } %>
+
 <h2>Utilisateurs</h2>
 <table>
   <thead><tr><th>Nom</th><th>Email</th><th>Rôle</th><th>Nouveau mot de passe</th><th></th></tr></thead>

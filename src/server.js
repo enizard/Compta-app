@@ -980,7 +980,7 @@ app.post('/lignes/creer', requireAuth, async (req, res) => {
 app.post('/comptes/:id', requireAuth, async (req, res) => {
   await pool.query('UPDATE comptes SET entite_id=$1 WHERE id=$2', [Number(req.body.entite_id) || null, req.params.id]);
   await releves.rapprocher();
-  res.redirect(`/rapprochement?compte=${req.params.id}`);
+  res.redirect(req.body.retour === 'admin' ? '/admin#comptes' : `/rapprochement?compte=${req.params.id}`);
 });
 
 app.get('/releves/:id/fichier', requireAuth, async (req, res) => {
@@ -1233,7 +1233,7 @@ app.get('/synthese', requireAuth, async (req, res) => {
 // ---------- administration ----------
 app.get('/admin', requireAdmin, async (req, res) => {
   const { rows: users } = await pool.query('SELECT id, nom, email, is_admin, created_at FROM users ORDER BY nom');
-  res.render('admin', { users, ...(await refs()) });
+  res.render('admin', { users, comptes: await listeComptes(), ...(await refs()) });
 });
 
 app.post('/admin/users', requireAdmin, async (req, res) => {

@@ -29,19 +29,23 @@
 </div>
 
 <div class="barre-outils">
-  <form method="post" action="/comptes/<%= compte.id %>" class="inline">
-    <small class="muted">Ce compte appartient à</small>
-    <select name="entite_id" onchange="this.form.submit()">
-      <option value="">— à préciser —</option>
-      <% entites.forEach(e => { %><option value="<%= e.id %>" <%= compte.entite_id === e.id ? 'selected' : '' %>><%= e.nom %></option><% }) %>
-    </select>
-  </form>
   <span class="spacer"></span>
   <a class="<%= filtre === 'a_faire' ? 'actif' : '' %>" href="/rapprochement?compte=<%= compte.id %>">À rapprocher</a> ·
   <a class="<%= filtre === 'tout' ? 'actif' : '' %>" href="/rapprochement?compte=<%= compte.id %>&filtre=tout">Toutes les lignes</a> ·
   <a class="<%= filtre === 'ecarts' ? 'actif' : '' %>" href="/rapprochement?compte=<%= compte.id %>&filtre=ecarts">Incohérences<% if (compte.nb_ecarts) { %> (<%= compte.nb_ecarts %>)<% } %></a>
 </div>
 
+<% if (!compte.entite_id) { %>
+  <div class="flash err">
+    <form method="post" action="/comptes/<%= compte.id %>" class="inline">
+      Le logiciel n'a pas reconnu la société titulaire de ce compte. À quelle société appartient-il ?
+      <select name="entite_id" onchange="this.form.submit()">
+        <option value="">— choisir —</option>
+        <% entites.forEach(e => { %><option value="<%= e.id %>"><%= e.nom %></option><% }) %>
+      </select>
+    </form>
+  </div>
+<% } %>
 <form method="post" action="/lignes/creer" id="fcreer">
   <input type="hidden" name="compte" value="<%= compte.id %>">
 </form>

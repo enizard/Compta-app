@@ -10,6 +10,7 @@
   </label>
 </form>
 <div id="msgDepot"></div>
+<div id="fileGroupe" class="flash" hidden></div>
 <% if (enAttente.length) { %>
   <div class="attente">
     <% enAttente.forEach(l => { %>
@@ -110,8 +111,41 @@
   });
 
   const zone = document.getElementById('zone'), input = document.getElementById('fichier');
+  // Plusieurs fichiers : envoi par paquets de 10, puis lecture en file d'attente côté serveur, sans fenêtre.
+  async function envoyerGroupe(files) {
+    const tous = [...files], msgs = [];
+    zone.classList.add('busy');
+    for (let i = 0; i < tous.length; i += 10) {
+      zone.querySelector('strong').textContent = `Envoi ${Math.min(i + 10, tous.length)} / ${tous.length} fichiers…`;
+      const fd = new FormData();
+      fd.append('groupe', '1');
+      tous.slice(i, i + 10).forEach((f) => fd.append('fichier', f));
+      try {
+        const r = await fetch('/depot', { method: 'POST', body: fd, headers: { Accept: 'application/json' } }).then((x) => x.json());
+        if (r.message) msgs.push(r.message);
+      } catch (e) { msgs.push(`Échec de l'envoi des fichiers ${i + 1} à ${Math.min(i + 10, tous.length)} : réessayez pour ceux-là.`); }
+    }
+    zone.classList.remove('busy');
+    zone.querySelector('strong').textContent = '📄 Glissez ici un ou plusieurs fichiers — factures, tickets, scans, relevés CIC / AMEX';
+    input.value = '';
+    if (msgs.length) { document.getElementById('msgDepot').innerHTML = '<div class="flash err"></div>'; document.querySelector('#msgDepot .flash').textContent = msgs.join(' '); }
+    suivreGroupe();
+  }
+  // Avancement de la file : bandeau mis à jour, liste rechargée à la fin.
+  async function suivreGroupe() {
+    const b = document.getElementById('fileGroupe');
+    const r = await fetch('/lots/etat.json').then((x) => x.json()).catch(() => null);
+    if (!r) return;
+    if (r.groupe) {
+      b.hidden = false;
+      b.textContent = `${r.groupe} document(s) en file d'attente : lecture et enregistrement automatiques en cours… Vous pouvez continuer à travailler.`;
+      setTimeout(suivreGroupe, 5000);
+    } else if (!b.hidden) location.reload();
+  }
+  suivreGroupe();
   async function envoyer(files) {
     if (!files.length) return;
+    if (files.length > 1) return envoyerGroupe(files);
     const fd = new FormData();
     for (const f of files) fd.append('fichier', f);
     zone.classList.add('busy');

@@ -457,10 +457,12 @@ app.post('/depot', requireAuth, upload.array('fichier', 50), async (req, res) =>
       dejaMis.push(`${f.originalname} (déjà déposé le ${quand}${ex[0].nom !== f.originalname ? ` sous le nom ${ex[0].nom}` : ''})`);
       continue;
     }
-    // Session annuelle : documents enregistrés et rattachés automatiquement, sans fenêtre de validation.
-    const auto = req.body.session === '1';
+    // Session annuelle ou dépôt de plusieurs fichiers : documents lus l'un après l'autre (file d'attente), enregistrés et
+    // rapprochés automatiquement, sans fenêtre de validation ; seuls les cas douteux restent à valider.
+    const auto = req.body.session === '1' || req.body.groupe === '1';
+    const info = req.body.session === '1' ? 'Session annuelle de téléchargement' : auto ? 'Dépôt groupé' : null;
     const { rows } = await pool.query('INSERT INTO lots (nom, created_by, hash, data, mimetype, auto, info) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id',
-      [f.originalname, req.session.user.id, hash, f.buffer, f.mimetype, auto, auto ? 'Session annuelle de téléchargement' : null]);
+      [f.originalname, req.session.user.id, hash, f.buffer, f.mimetype, auto, info]);
     ids.push(rows[0].id);
     mettreEnFile(rows[0].id, f, req.session.user.id);
   }
@@ -486,8 +488,9 @@ app.get('/lot/:id/fichier', requireAuth, async (req, res) => {
 });
 
 app.get('/lots/etat.json', requireAuth, async (req, res) => {
-  const { rows } = await pool.query("SELECT COUNT(*)::int AS n FROM lots WHERE statut = 'en_cours'");
-  res.json({ en_cours: rows[0].n });
+  const { rows } = await pool.query(`SELECT COUNT(*) FILTER (WHERE statut = 'en_cours')::int AS n,
+      COUNT(*) FILTER (WHERE statut = 'en_cours' AND info = 'Dépôt groupé')::int AS groupe FROM lots`);
+  res.json({ en_cours: rows[0].n, groupe: rows[0].groupe });
 });
 
 async function listeComptes() {

@@ -86,8 +86,28 @@ async function rapprocher() {
     }
   }
   auto += await ecrituresSansFacture();
+  auto += await encaissementsAuto();
   await attribuerSocietes();
   return auto;
+}
+
+// Encaissements automatiques (virements Stripe…) : chaque crédit du relevé devient une recette « Ventes / honoraires ».
+async function encaissementsAuto() {
+  const { rows } = await pool.query(`
+    SELECT l.id, l.date_op, l.libelle, l.montant, c.entite_id, c.nature, c.banque, f.id AS fid, COALESCE(f.nom, 'Stripe') AS fnom
+    FROM lignes l JOIN comptes c ON c.id = l.compte_id LEFT JOIN fournisseurs f ON f.id = l.fournisseur_id
+    WHERE l.montant > 0 AND l.operation_id IS NULL AND l.total_carte IS NULL AND NOT l.ignoree AND c.entite_id IS NOT NULL
+      AND (f.encaissement_auto OR (f.id IS NULL AND l.libelle ~* 'stripe'))`);
+  const { rows: cat } = await pool.query("SELECT id FROM categories WHERE nom = 'Ventes / honoraires'");
+  for (const l of rows) {
+    const { rows: ins } = await pool.query(
+      `INSERT INTO operations (entite_id, date_op, type, categorie_id, libelle, tiers, montant_ttc, tva, notes, paiement,
+         reglement, date_paiement, fournisseur_id)
+       VALUES ($1,$2,'recette',$3,$4,$5,$6,0,'Encaissement automatique (virement reçu)',$7,'Réglé',$2,$8) RETURNING id`,
+      [l.entite_id, l.date_op, cat[0] ? cat[0].id : null, l.libelle, l.fnom, Number(l.montant), paiementAttendu(l), l.fid]);
+    await pool.query('UPDATE lignes SET operation_id=$1 WHERE id=$2 AND operation_id IS NULL', [ins[0].id, l.id]);
+  }
+  return rows.length;
 }
 
 // Organismes sans facture (URSSAF, DGFIP…) : chaque ligne de relevé devient une écriture réglée, sans justificatif demandé.

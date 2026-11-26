@@ -1265,7 +1265,25 @@ app.get('/resultat', requireAuth, async (req, res) => {
     return Object.entries(cats).map(([nom, v]) => ({ nom, v })).sort((a, b) =>
       Object.values(b.v).reduce((s, x) => s + x, 0) - Object.values(a.v).reduce((s, x) => s + x, 0));
   };
-  res.render('resultat', { annee, annees: annees.map((x) => x.a), entites, revenus: bloc('recette'), couts: bloc('depense'),
+  // Dus de trésorerie : dépense d'une société payée depuis le compte d'une autre (ou recette encaissée sur le compte d'une
+  // autre) → la première doit le montant à la seconde. Avance CC : la société doit à l'associé. Cumul jusqu'à fin d'exercice.
+  const { rows: dus } = await pool.query(`
+    SELECT o.entite_id AS doit, c.entite_id AS a, SUM(CASE WHEN o.type = 'depense' THEN o.montant_ttc ELSE -o.montant_ttc END) AS montant
+    FROM operations o JOIN lignes l ON l.operation_id = o.id JOIN comptes c ON c.id = l.compte_id
+    WHERE o.entite_id IS NOT NULL AND c.entite_id IS NOT NULL AND o.entite_id <> c.entite_id AND o.date_op <= make_date($1, 12, 31)
+    GROUP BY 1, 2
+    UNION ALL
+    SELECT o.entite_id, -1, SUM(o.montant_ttc) FROM operations o
+    WHERE o.paiement LIKE 'Avance CC%' AND o.type = 'depense' AND o.entite_id IS NOT NULL AND o.date_op <= make_date($1, 12, 31)
+    GROUP BY 1`, [annee]);
+  // Solde net par paire : positif = la société de la colonne est créancière de la contrepartie.
+  const soldes = {};
+  for (const d of dus) {
+    const m = Number(d.montant);
+    soldes[d.doit] = soldes[d.doit] || {}; soldes[d.doit][d.a] = (soldes[d.doit][d.a] || 0) - m;
+    if (d.a !== -1) { soldes[d.a] = soldes[d.a] || {}; soldes[d.a][d.doit] = (soldes[d.a][d.doit] || 0) + m; }
+  }
+  res.render('resultat', { annee, soldes, annees: annees.map((x) => x.a), entites, revenus: bloc('recette'), couts: bloc('depense'),
     nonRappro: Object.fromEntries(nr.map((x) => [x.entite_id || 0, { entrees: Number(x.entrees || 0), sorties: Number(x.sorties || 0) }])) });
 });
 

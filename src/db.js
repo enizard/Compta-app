@@ -167,6 +167,7 @@ async function init() {
     ALTER TABLE fournisseurs ADD COLUMN IF NOT EXISTS recup_annuelle BOOLEAN NOT NULL DEFAULT FALSE;
     ALTER TABLE operations ADD COLUMN IF NOT EXISTS justif_attendu BOOLEAN NOT NULL DEFAULT FALSE;
     ALTER TABLE fournisseurs ADD COLUMN IF NOT EXISTS mode TEXT;
+    ALTER TABLE fournisseurs ADD COLUMN IF NOT EXISTS encaissement_auto BOOLEAN NOT NULL DEFAULT FALSE;
     ALTER TABLE operations ADD COLUMN IF NOT EXISTS fournisseur_id INTEGER REFERENCES fournisseurs(id) ON DELETE SET NULL;
     CREATE TABLE IF NOT EXISTS reglements (
       id SERIAL PRIMARY KEY,
@@ -201,6 +202,8 @@ async function init() {
   await pool.query(`UPDATE emails_recus SET statut='pas_facture'
     WHERE statut IN ('en_cours','traite') AND (de ILIKE '%@accounts.google.com>%' OR de ILIKE '%mail-noreply@google.com>%')`);
   // Mode de récupération déduit des réglages existants (une seule fois).
+  // Virements Stripe reçus : comptés en revenus automatiquement.
+  await pool.query(`UPDATE fournisseurs SET encaissement_auto = TRUE WHERE cle ~ '(^| )stripe( |$)' AND NOT encaissement_auto`);
   // « Sans facture » fusionné dans « Rien à faire ».
   await pool.query(`UPDATE fournisseurs SET mode = 'rien' WHERE mode = 'auto'`);
   await pool.query(`UPDATE fournisseurs SET mode = CASE WHEN ecriture_auto THEN 'rien' WHEN recup_annuelle THEN 'session'

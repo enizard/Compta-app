@@ -13,8 +13,8 @@ async function idFournisseur(nom) {
   const k = cle(nom);
   if (!k) return null;
   const { rows } = await pool.query(
-    `INSERT INTO fournisseurs (nom, cle, ecriture_auto, mode) VALUES ($1, $2, $2 ~ '(^| )(urssaf|dgfip|sie|impots|tresor public)( |$)',
-       CASE WHEN $2 ~ '(^| )(urssaf|dgfip|sie|impots|tresor public)( |$)' THEN 'rien' END)
+    `INSERT INTO fournisseurs (nom, cle, ecriture_auto, mode, encaissement_auto) VALUES ($1, $2, $2 ~ '(^| )(urssaf|dgfip|sie|impots|tresor public)( |$)',
+       CASE WHEN $2 ~ '(^| )(urssaf|dgfip|sie|impots|tresor public)( |$)' THEN 'rien' END, $2 ~ '(^| )stripe( |$)')
      ON CONFLICT (cle) DO UPDATE SET cle = EXCLUDED.cle RETURNING id`, [String(nom).trim().slice(0, 80), k]);
   return rows[0].id;
 }

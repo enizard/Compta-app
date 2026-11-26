@@ -27,6 +27,19 @@
       <% const g = tg(revenus) - tg(couts); %><td class="r <%= g < 0 ? 'neg' : 'pos' %>"><%= fmt(g) %></td></tr>
   </tbody>
 </table>
+<h2>Dus de trésorerie au 31/12/<%= annee %></h2>
+<p class="muted"><small>Dépenses d'une société payées depuis le compte d'une autre (et recettes encaissées sur le compte d'une autre), cumulées. <span class="pos">Positif</span> : la société de la colonne doit recevoir ; <span class="neg">négatif</span> : elle doit payer.</small></p>
+<% const contreparties = cols.filter(c => c.id).map(c => ({ id: c.id, nom: c.nom })).concat([{ id: -1, nom: 'Associé (avances en compte courant)' }]);
+   const lignesDus = contreparties.filter(cp => cols.some(c => soldes[c.id] && Math.abs(soldes[c.id][cp.id] || 0) >= 0.01)); %>
+<% if (!lignesDus.length) { %><p class="muted">Aucun dû entre sociétés.</p><% } else { %>
+<table class="resultat">
+  <thead><tr><th>Envers</th><% cols.filter(c => c.id).forEach(c => { %><th class="r"><%= c.nom %></th><% }) %></tr></thead>
+  <tbody>
+    <% lignesDus.forEach(cp => { %><tr><td><%= cp.nom %></td><% cols.filter(c => c.id).forEach(c => { const x = (soldes[c.id] || {})[cp.id] || 0; %>
+      <td class="r <%= x < -0.005 ? 'neg' : x > 0.005 ? 'pos' : '' %>"><%= Math.abs(x) >= 0.01 ? fmt(x) : '–' %></td><% }) %></tr><% }) %>
+  </tbody>
+</table>
+<% } %>
 <% if (Object.keys(nonRappro).length) { %>
 <p class="muted"><small>Non compris (mouvements bancaires <%= annee %> pas encore rapprochés, TTC) :
   <% cols.filter(c => nonRappro[c.id]).forEach((c, i) => { const n = nonRappro[c.id]; %><%= i ? ' · ' : '' %><%= c.nom %> : entrées <%= fmt(n.entrees) %>, sorties <%= fmt(n.sorties) %><% }) %>

@@ -978,7 +978,16 @@ app.post('/lignes/creer', requireAuth, async (req, res) => {
 });
 
 app.post('/comptes/:id', requireAuth, async (req, res) => {
-  await pool.query('UPDATE comptes SET entite_id=$1 WHERE id=$2', [Number(req.body.entite_id) || null, req.params.id]);
+  const entite = Number(req.body.entite_id) || null;
+  await pool.query('UPDATE comptes SET entite_id=$1 WHERE id=$2', [entite, req.params.id]);
+  // Opérations créées depuis les lignes de ce compte, sans justificatif (rien à faire, session annuelle, écriture créée
+  // depuis le relevé) : elles prennent la société titulaire du compte.
+  if (entite) {
+    const { rowCount } = await pool.query(`UPDATE operations o SET entite_id=$1, updated_at=NOW()
+      FROM lignes l WHERE l.operation_id = o.id AND l.compte_id = $2 AND o.justif_data IS NULL AND o.entite_id IS DISTINCT FROM $1`,
+      [entite, req.params.id]);
+    if (rowCount) flash(req, `${rowCount} opération(s) créée(s) depuis ce relevé passée(s) à la nouvelle société.`);
+  }
   await releves.rapprocher();
   res.redirect(req.body.retour === 'admin' ? '/admin#comptes' : `/rapprochement?compte=${req.params.id}`);
 });

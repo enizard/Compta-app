@@ -217,3 +217,4 @@ nav.top button.link { width: 100%; background: none; border: 0; font: inherit; c
 .nav-cpt-type { grid-area: type; font-weight: 500; }
 .nav-cpt-num { grid-area: num; font-variant-numeric: tabular-nums; opacity: .75; }
 .nav-cpt-etat { grid-area: etat; font-size: 12px; }
+.badge.warn, .nav-cpt .badge.warn { background: #fde7c2; color: #7a4a00; }

@@ -52,7 +52,7 @@ input.readonly { background: #f5f6f8; color: #6b7385; }
   border: 2px dashed #b9c2d3; border-radius: 12px; background: #fff; cursor: pointer; text-align: center; padding: 24px; transition: .15s; }
 .drop.over { border-color: #2557d6; background: #eef3ff; }
 .drop .big { font-size: 40px; }
-.drop.busy { pointer-events: none; opacity: .7; }
+.drop.busy { opacity: .8; }
 @media (max-width: 860px) { .split { grid-template-columns: 1fr; } .apercu { position: static; } }
 input[hidden] { display: none !important; }
 

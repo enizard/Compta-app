@@ -124,11 +124,17 @@
 
   const zone = document.getElementById('zone'), input = document.getElementById('fichier');
   // Plusieurs fichiers : envoi par paquets de 10, puis lecture en file d'attente côté serveur, sans fenêtre.
+  // Fichiers déposés pendant un envoi en cours : ajoutés à la suite du même envoi.
+  let tous = [], envoiEnCours = false;
   async function envoyerGroupe(files) {
-    const tous = [...files], msgs = [];
+    tous.push(...files);
+    input.value = '';
+    if (envoiEnCours) return;
+    envoiEnCours = true;
+    const msgs = [];
     zone.classList.add('busy');
     for (let i = 0; i < tous.length; i += 10) {
-      zone.querySelector('strong').textContent = `Envoi ${Math.min(i + 10, tous.length)} / ${tous.length} fichiers…`;
+      zone.querySelector('strong').textContent = `Envoi ${Math.min(i + 10, tous.length)} / ${tous.length} fichiers… (vous pouvez en déposer d'autres)`;
       const fd = new FormData();
       fd.append('groupe', '1');
       tous.slice(i, i + 10).forEach((f) => fd.append('fichier', f));
@@ -137,6 +143,7 @@
         if (r.message) msgs.push(r.message);
       } catch (e) { msgs.push(`Échec de l'envoi des fichiers ${i + 1} à ${Math.min(i + 10, tous.length)} : réessayez pour ceux-là.`); }
     }
+    tous = []; envoiEnCours = false;
     zone.classList.remove('busy');
     zone.querySelector('strong').textContent = '📄 Glissez ici un ou plusieurs fichiers — factures, tickets, scans, relevés CIC / AMEX';
     input.value = '';
@@ -157,7 +164,10 @@
   suivreGroupe();
   async function envoyer(files) {
     if (!files.length) return;
-    if (files.length > 1) return envoyerGroupe(files);
+    // Plusieurs fichiers, ou une file d'attente déjà en cours : on ajoute à la file, sans fenêtre.
+    if (files.length > 1 || envoiEnCours) return envoyerGroupe(files);
+    const etat = await fetch('/lots/etat.json').then((x) => x.json()).catch(() => ({}));
+    if (etat.en_cours) return envoyerGroupe(files);
     const fd = new FormData();
     for (const f of files) fd.append('fichier', f);
     zone.classList.add('busy');

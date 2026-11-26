@@ -13,18 +13,24 @@
   <div class="card">Aucun relevé importé pour l'instant. Déposez un relevé PDF (CIC ou AMEX) sur la <a href="/">page de dépôt</a> : il sera reconnu automatiquement.</div>
 <% } else { %>
 
-<% const socs = []; comptes.forEach(c => { if (!socs.some(s => s.id === c.entite_id)) socs.push({ id: c.entite_id, nom: c.entite || 'Société à préciser' }); }); %>
-<div class="barre-outils">
-  Société :
-  <a class="<%= !societe ? 'actif' : '' %>" href="/rapprochement">Toutes</a>
-  <% socs.forEach(s => { const v = s.id ? String(s.id) : 'aucune'; %> · <a class="<%= societe === v ? 'actif' : '' %>" href="/rapprochement?societe=<%= v %>"><%= s.nom %></a><% }) %>
-</div>
-<div class="tabs">
-  <% visibles.forEach(c => { %>
-    <a class="<%= c.id === compte.id ? 'actif' : '' %>" href="/rapprochement?compte=<%= c.id %><%= societe ? '&societe=' + societe : '' %>"
-       title="<%= c.nature === 'carte' ? 'Carte' : 'Compte' %> dont le numéro se termine par <%= c.numero || '?' %>">
-      <%= c.entite || 'Société à préciser' %> · <%= c.banque === 'AMEX' ? 'Carte AMEX' : c.nature === 'carte' ? 'Carte ' + c.banque : 'Compte ' + c.banque %><%= c.numero ? ' n° …' + c.numero : '' %><% if (c.a_rapprocher) { %> <span class="badge"><%= c.a_rapprocher %></span><% } %><% if (c.nb_ecarts) { %> <span class="badge warn" title="Incohérences à vérifier">⚠ <%= c.nb_ecarts %></span><% } %>
-    </a>
+<% const socs = [];
+   comptes.forEach(c => { let g = socs.find(s => s.id === c.entite_id); if (!g) socs.push(g = { id: c.entite_id, nom: c.entite || 'Société à préciser', comptes: [] }); g.comptes.push(c); });
+   socs.forEach(g => g.comptes.sort((x, y) => (x.nature === 'carte') - (y.nature === 'carte') || (x.banque === 'AMEX') - (y.banque === 'AMEX'))); %>
+<div class="nav-comptes">
+  <% socs.forEach(g => { %>
+    <div class="nav-soc <%= g.comptes.some(c => c.id === compte.id) ? 'courante' : '' %>">
+      <div class="nav-soc-nom"><%= g.nom %></div>
+      <div class="nav-soc-comptes">
+        <% g.comptes.forEach(c => { %>
+          <a class="nav-cpt <%= c.id === compte.id ? 'actif' : '' %>" href="/rapprochement?compte=<%= c.id %>"
+             title="<%= c.nature === 'carte' ? 'Carte' : 'Compte' %> dont le numéro se termine par <%= c.numero || '?' %>">
+            <span class="nav-cpt-type"><%= c.nature === 'carte' ? '💳' : '🏦' %> <%= c.banque === 'AMEX' ? 'Carte AMEX' : c.nature === 'carte' ? 'Carte ' + c.banque : 'Compte ' + c.banque %></span>
+            <span class="nav-cpt-num">…<%= c.numero || '?' %></span>
+            <span class="nav-cpt-etat"><% if (c.a_rapprocher) { %><span class="badge"><%= c.a_rapprocher %> à rapprocher</span><% } else { %><span class="pos">✓ à jour</span><% } %><% if (c.nb_ecarts) { %> <span class="badge warn" title="Incohérences à vérifier">⚠ <%= c.nb_ecarts %></span><% } %></span>
+          </a>
+        <% }) %>
+      </div>
+    </div>
   <% }) %>
 </div>
 

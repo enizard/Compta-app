@@ -203,3 +203,17 @@ nav.top button.link { width: 100%; background: none; border: 0; font: inherit; c
   body:has(> nav.top) { padding-left: 0; }
   nav.top { position: static; width: auto; flex-direction: row; flex-wrap: wrap; }
 }
+/* Relevés : navigation par société puis compte / carte */
+.nav-comptes { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; margin: 8px 0 18px; }
+.nav-soc { background: #fffdfa; border: 1px solid #e8dccb; border-radius: 10px; padding: 10px 12px; }
+.nav-soc.courante { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.nav-soc-nom { font-weight: 600; margin-bottom: 8px; color: #4a3b2a; }
+.nav-soc-comptes { display: flex; flex-direction: column; gap: 6px; }
+.nav-cpt { display: grid; grid-template-columns: 1fr auto; grid-template-areas: "type num" "etat etat"; gap: 2px 8px; padding: 7px 10px;
+  border-radius: 7px; border: 1px solid #efe4d6; text-decoration: none; color: inherit; background: #fff; }
+.nav-cpt:hover { background: #f6ecdf; }
+.nav-cpt.actif { background: #4a3428; color: #fff; border-color: #4a3428; }
+.nav-cpt.actif .pos { color: #c9f0d2; }
+.nav-cpt-type { grid-area: type; font-weight: 500; }
+.nav-cpt-num { grid-area: num; font-variant-numeric: tabular-nums; opacity: .75; }
+.nav-cpt-etat { grid-area: etat; font-size: 12px; }

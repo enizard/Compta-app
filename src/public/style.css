@@ -236,3 +236,6 @@ table.couv th.an { border-left: 2px solid #c9b79f; }
 .couv-partiel { background: #fde7c2; color: #7a4a00; }
 .couv-manque { background: #fbd9d5; color: #a3261a; font-weight: 600; }
 .couv-avant { background: #f4efe8; }
+td.statut-rapproche { color: #1e6b37; white-space: nowrap; font-size: 12px; }
+td.statut-non_necessaire { color: #8a7a68; font-size: 12px; }
+td.statut-a_rapprocher { color: #a3261a; font-weight: 600; white-space: nowrap; font-size: 12px; }

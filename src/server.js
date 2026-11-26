@@ -877,18 +877,30 @@ app.get('/rapprochement', requireAuth, async (req, res) => {
   const visibles = societe ? comptes.filter((c) => String(c.entite_id || '') === (societe === 'aucune' ? '' : societe)) : comptes;
   const compte = visibles.find((c) => String(c.id) === String(req.query.compte)) || visibles.find((c) => c.a_rapprocher) || visibles[0];
   if (!compte) return res.redirect('/rapprochement');
-  const filtre = ['tout', 'ecarts'].includes(req.query.filtre) ? req.query.filtre : 'a_faire';
+  // Filtre de statut : à rapprocher (par défaut), rapproché, rapprochement non nécessaire, toutes, incohérences.
+  const filtre = ['tout', 'ecarts', 'rapproche', 'non_necessaire'].includes(req.query.filtre) ? req.query.filtre : 'a_faire';
+  const moisFiltre = /^\d{4}-\d{2}$/.test(req.query.mois || '') ? req.query.mois : '';
+  // Statut d'une ligne : non nécessaire = ignorée, ou couverte par une écriture automatique sans justificatif
+  // (rien à faire, session annuelle, encaissement automatique) ; rapproché = opération ou relevé de carte ; sinon à rapprocher.
   const { rows: lignes } = await pool.query(`
-    SELECT l.*, o.libelle AS op_libelle, o.tiers AS op_tiers, o.date_op AS op_date, o.justif_nom AS op_justif,
-      o.entite_id AS op_entite_id, o.paiement AS op_paiement,
-      r.periode_debut AS rc_debut, r.periode_fin AS rc_fin,
-      (SELECT COUNT(*) FROM lignes x WHERE x.releve_id = r.id)::int AS rc_nb
-    FROM lignes l
-    LEFT JOIN operations o ON o.id = l.operation_id
-    LEFT JOIN releves r ON r.id = l.releve_carte_id
-    WHERE l.compte_id = $1 ${filtre === 'a_faire' ? 'AND l.operation_id IS NULL AND l.releve_carte_id IS NULL AND NOT l.ignoree' : ''}
-      ${filtre === 'ecarts' ? 'AND l.operation_id IS NOT NULL AND NOT l.ecart_accepte' : ''}
-    ORDER BY l.date_op DESC, l.id DESC`, [compte.id]);
+    SELECT * FROM (
+      SELECT l.*, o.libelle AS op_libelle, o.tiers AS op_tiers, o.date_op AS op_date, o.justif_nom AS op_justif,
+        o.entite_id AS op_entite_id, o.paiement AS op_paiement,
+        r.periode_debut AS rc_debut, r.periode_fin AS rc_fin,
+        (SELECT COUNT(*) FROM lignes x WHERE x.releve_id = r.id)::int AS rc_nb,
+        CASE WHEN l.ignoree OR (o.id IS NOT NULL AND o.justif_data IS NULL AND (o.justif_attendu
+               OR o.notes LIKE 'Écriture automatique%' OR o.notes LIKE 'Encaissement automatique%')) THEN 'non_necessaire'
+             WHEN l.operation_id IS NOT NULL OR l.releve_carte_id IS NOT NULL THEN 'rapproche'
+             ELSE 'a_rapprocher' END AS statut
+      FROM lignes l
+      LEFT JOIN operations o ON o.id = l.operation_id
+      LEFT JOIN releves r ON r.id = l.releve_carte_id
+      WHERE l.compte_id = $1 AND ($2 = '' OR to_char(l.date_op, 'YYYY-MM') = $2)
+    ) x
+    WHERE ${filtre === 'a_faire' ? "statut = 'a_rapprocher'" : filtre === 'rapproche' ? "statut = 'rapproche'"
+      : filtre === 'non_necessaire' ? "statut = 'non_necessaire'" : filtre === 'ecarts' ? 'operation_id IS NOT NULL AND NOT ecart_accepte' : 'TRUE'}
+    ORDER BY date_op DESC, id DESC`, [compte.id, moisFiltre]);
+  const { rows: moisDispo } = await pool.query(`SELECT DISTINCT to_char(date_op, 'YYYY-MM') AS m FROM lignes WHERE compte_id = $1 ORDER BY m DESC`, [compte.id]);
   const nomsEntites = Object.fromEntries((await refs()).entites.map((e) => [e.id, e.nom]));
   for (const l of lignes) {
     if (!l.operation_id && !l.total_carte && !l.ignoree) {
@@ -935,7 +947,7 @@ app.get('/rapprochement', requireAuth, async (req, res) => {
       WHERE l.compte_id = $1 AND NOT l.ecart_accepte`, [c.id]);
     c.nb_ecarts = rr.filter((o) => releves.ecarts(o, c, nomsEntites).length).length;
   }
-  res.render('rapprochement', { visibles, societe, mois, couverture, comptes, compte, lignes: lignesAffichees, releves: rels, filtre, ...(await refs()) });
+  res.render('rapprochement', { visibles, societe, mois, couverture, moisFiltre, moisDispo: moisDispo.map((x) => x.m), comptes, compte, lignes: lignesAffichees, releves: rels, filtre, ...(await refs()) });
 });
 
 app.post('/rapprochement/auto', requireAuth, async (req, res) => {

@@ -51,11 +51,23 @@
   </div>
 </details>
 
+<% const u = (o) => { const p = Object.assign({ compte: compte.id, filtre, mois: moisFiltre }, o); return '/rapprochement?' + Object.entries(p).filter(([k, v]) => v && !(k === 'filtre' && v === 'a_faire')).map(([k, v]) => k + '=' + encodeURIComponent(v)).join('&'); }; %>
 <div class="barre-outils">
+  <form method="get" class="inline">
+    <input type="hidden" name="compte" value="<%= compte.id %>"><input type="hidden" name="filtre" value="<%= filtre %>">
+    Mois :
+    <select name="mois" onchange="this.form.submit()">
+      <option value="">Tous les mois</option>
+      <% moisDispo.forEach(m => { const [a, mm] = m.split('-'); %><option value="<%= m %>" <%= m === moisFiltre ? 'selected' : '' %>><%= new Date(Date.UTC(a, mm - 1, 1)).toLocaleDateString('fr-FR', { month: 'long', year: 'numeric', timeZone: 'UTC' }) %></option><% }) %>
+    </select>
+  </form>
   <span class="spacer"></span>
-  <a class="<%= filtre === 'a_faire' ? 'actif' : '' %>" href="/rapprochement?compte=<%= compte.id %>">À rapprocher</a> ·
-  <a class="<%= filtre === 'tout' ? 'actif' : '' %>" href="/rapprochement?compte=<%= compte.id %>&filtre=tout">Toutes les lignes</a> ·
-  <a class="<%= filtre === 'ecarts' ? 'actif' : '' %>" href="/rapprochement?compte=<%= compte.id %>&filtre=ecarts">Incohérences<% if (compte.nb_ecarts) { %> (<%= compte.nb_ecarts %>)<% } %></a>
+  Statut :
+  <a class="<%= filtre === 'a_faire' ? 'actif' : '' %>" href="<%= u({ filtre: 'a_faire' }) %>">À rapprocher</a> ·
+  <a class="<%= filtre === 'rapproche' ? 'actif' : '' %>" href="<%= u({ filtre: 'rapproche' }) %>">Rapproché</a> ·
+  <a class="<%= filtre === 'non_necessaire' ? 'actif' : '' %>" href="<%= u({ filtre: 'non_necessaire' }) %>">Rapprochement non nécessaire</a> ·
+  <a class="<%= filtre === 'tout' ? 'actif' : '' %>" href="<%= u({ filtre: 'tout' }) %>">Toutes les lignes</a> ·
+  <a class="<%= filtre === 'ecarts' ? 'actif' : '' %>" href="<%= u({ filtre: 'ecarts' }) %>">Incohérences<% if (compte.nb_ecarts) { %> (<%= compte.nb_ecarts %>)<% } %></a>
 </div>
 
 <% if (!compte.entite_id) { %>
@@ -75,7 +87,7 @@
 
 <table>
   <thead><tr><th><input type="checkbox" onclick="document.querySelectorAll('.chk').forEach(c => c.checked = this.checked)"></th>
-    <th>Date</th><th>Libellé du relevé</th><th class="r">Montant</th><th>Rapprochement</th></tr></thead>
+    <th>Date</th><th>Libellé du relevé</th><th class="r">Montant</th><th>Rapprochement</th><th>Statut</th></tr></thead>
   <tbody>
   <% lignes.forEach(l => { %>
     <tr class="<%= l.ignoree ? 'muted' : '' %>">
@@ -120,9 +132,10 @@
           · <form method="post" action="/lignes/<%= l.id %>/ignorer" class="inline"><button class="link">ignorer</button></form>
         <% } %>
       </td>
+      <td class="statut-<%= l.statut %>"><%= { rapproche: '✓ Rapproché', non_necessaire: 'Rapprochement non nécessaire', a_rapprocher: 'À rapprocher' }[l.statut] %></td>
     </tr>
   <% }) %>
-  <% if (!lignes.length) { %><tr><td colspan="5" class="muted center">Tout est rapproché 🎉</td></tr><% } %>
+  <% if (!lignes.length) { %><tr><td colspan="6" class="muted center"><%= filtre === 'a_faire' ? 'Tout est rapproché 🎉' : 'Aucune ligne.' %></td></tr><% } %>
   </tbody>
 </table>
 <% if (lignes.some(l => !l.operation_id && !l.total_carte && !l.ignoree)) { %>

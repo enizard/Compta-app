@@ -13,17 +13,24 @@
   <div class="card">Aucun relevé importé pour l'instant. Déposez un relevé PDF (CIC ou AMEX) sur la <a href="/">page de dépôt</a> : il sera reconnu automatiquement.</div>
 <% } else { %>
 
+<% const socs = []; comptes.forEach(c => { if (!socs.some(s => s.id === c.entite_id)) socs.push({ id: c.entite_id, nom: c.entite || 'Société à préciser' }); }); %>
+<div class="barre-outils">
+  Société :
+  <a class="<%= !societe ? 'actif' : '' %>" href="/rapprochement">Toutes</a>
+  <% socs.forEach(s => { const v = s.id ? String(s.id) : 'aucune'; %> · <a class="<%= societe === v ? 'actif' : '' %>" href="/rapprochement?societe=<%= v %>"><%= s.nom %></a><% }) %>
+</div>
 <div class="tabs">
-  <% comptes.forEach(c => { %>
-    <a class="<%= c.id === compte.id ? 'actif' : '' %>" href="/rapprochement?compte=<%= c.id %>">
-      <%= c.libelle %><% if (c.a_rapprocher) { %> <span class="badge"><%= c.a_rapprocher %></span><% } %><% if (c.nb_ecarts) { %> <span class="badge warn" title="Incohérences à vérifier">⚠ <%= c.nb_ecarts %></span><% } %>
+  <% visibles.forEach(c => { %>
+    <a class="<%= c.id === compte.id ? 'actif' : '' %>" href="/rapprochement?compte=<%= c.id %><%= societe ? '&societe=' + societe : '' %>"
+       title="<%= c.nature === 'carte' ? 'Carte' : 'Compte' %> dont le numéro se termine par <%= c.numero || '?' %>">
+      <%= c.entite || 'Société à préciser' %> · <%= c.banque === 'AMEX' ? 'Carte AMEX' : c.nature === 'carte' ? 'Carte ' + c.banque : 'Compte ' + c.banque %><%= c.numero ? ' n° …' + c.numero : '' %><% if (c.a_rapprocher) { %> <span class="badge"><%= c.a_rapprocher %></span><% } %><% if (c.nb_ecarts) { %> <span class="badge warn" title="Incohérences à vérifier">⚠ <%= c.nb_ecarts %></span><% } %>
     </a>
   <% }) %>
 </div>
 
 <div class="barre-outils">
   <form method="post" action="/comptes/<%= compte.id %>" class="inline">
-    Société du compte :
+    <small class="muted">Ce compte appartient à</small>
     <select name="entite_id" onchange="this.form.submit()">
       <option value="">— à préciser —</option>
       <% entites.forEach(e => { %><option value="<%= e.id %>" <%= compte.entite_id === e.id ? 'selected' : '' %>><%= e.nom %></option><% }) %>

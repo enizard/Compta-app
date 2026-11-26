@@ -861,7 +861,11 @@ app.get('/operations/:id/justificatif', requireAuth, async (req, res) => {
 app.get('/rapprochement', requireAuth, async (req, res) => {
   const comptes = await listeComptes();
   if (!comptes.length) return res.render('rapprochement', { comptes, compte: null, lignes: [], releves: [], filtre: 'a_faire', ...(await refs()) });
-  const compte = comptes.find((c) => String(c.id) === String(req.query.compte)) || comptes.find((c) => c.a_rapprocher) || comptes[0];
+  // Filtre par société : seuls les comptes de cette société sont proposés.
+  const societe = req.query.societe || '';
+  const visibles = societe ? comptes.filter((c) => String(c.entite_id || '') === (societe === 'aucune' ? '' : societe)) : comptes;
+  const compte = visibles.find((c) => String(c.id) === String(req.query.compte)) || visibles.find((c) => c.a_rapprocher) || visibles[0];
+  if (!compte) return res.redirect('/rapprochement');
   const filtre = ['tout', 'ecarts'].includes(req.query.filtre) ? req.query.filtre : 'a_faire';
   const { rows: lignes } = await pool.query(`
     SELECT l.*, o.libelle AS op_libelle, o.tiers AS op_tiers, o.date_op AS op_date, o.justif_nom AS op_justif,
@@ -897,7 +901,7 @@ app.get('/rapprochement', requireAuth, async (req, res) => {
       WHERE l.compte_id = $1 AND NOT l.ecart_accepte`, [c.id]);
     c.nb_ecarts = rr.filter((o) => releves.ecarts(o, c, nomsEntites).length).length;
   }
-  res.render('rapprochement', { comptes, compte, lignes: lignesAffichees, releves: rels, filtre, ...(await refs()) });
+  res.render('rapprochement', { visibles, societe, comptes, compte, lignes: lignesAffichees, releves: rels, filtre, ...(await refs()) });
 });
 
 app.post('/rapprochement/auto', requireAuth, async (req, res) => {

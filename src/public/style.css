@@ -218,3 +218,6 @@ nav.top button.link { width: 100%; background: none; border: 0; font: inherit; c
 .nav-cpt-num { grid-area: num; font-variant-numeric: tabular-nums; opacity: .75; }
 .nav-cpt-etat { grid-area: etat; font-size: 12px; }
 .badge.warn, .nav-cpt .badge.warn { background: #fde7c2; color: #7a4a00; }
+table.resultat tr.titre td { font-weight: 600; background: #f6ecdf; color: #4a3b2a; }
+table.resultat tr.sous-total td { font-weight: 600; border-top: 1px solid #dccbb5; }
+table.resultat tr.resultat-net td { font-weight: 700; font-size: 15px; border-top: 2px solid #4a3428; }

@@ -1,0 +1,35 @@
+<%- include('partials/header') %>
+<div class="head">
+  <h1>Compte de résultat <%= annee %></h1>
+  <form method="get" class="inline">Exercice
+    <select name="annee" onchange="this.form.submit()">
+      <% (annees.length ? annees : [annee]).forEach(a => { %><option <%= a === annee ? 'selected' : '' %>><%= a %></option><% }) %>
+    </select>
+  </form>
+</div>
+<p class="muted">Simplifié, montants hors taxes, à partir des opérations enregistrées (date de la facture).</p>
+<% const cols = entites.concat(revenus.concat(couts).some(r => r.v[0]) ? [{ id: 0, nom: 'Société inconnue' }] : []);
+   const tot = (lignes, id) => lignes.reduce((s, r) => s + (r.v[id] || 0), 0);
+   const tg = (lignes) => cols.reduce((s, c) => s + tot(lignes, c.id), 0);
+   const m = (x) => x ? fmt(x) : '–'; %>
+<table class="resultat">
+  <thead><tr><th></th><% cols.forEach(c => { %><th class="r"><%= c.nom %></th><% }) %><th class="r">Total</th></tr></thead>
+  <tbody>
+    <tr class="titre"><td colspan="<%= cols.length + 2 %>">Revenus</td></tr>
+    <% revenus.forEach(r => { %><tr><td><%= r.nom %></td><% cols.forEach(c => { %><td class="r"><%= m(r.v[c.id]) %></td><% }) %><td class="r"><%= m(Object.values(r.v).reduce((s, x) => s + x, 0)) %></td></tr><% }) %>
+    <tr class="sous-total"><td>Total revenus</td><% cols.forEach(c => { %><td class="r"><%= fmt(tot(revenus, c.id)) %></td><% }) %><td class="r"><%= fmt(tg(revenus)) %></td></tr>
+
+    <tr class="titre"><td colspan="<%= cols.length + 2 %>">Coûts</td></tr>
+    <% couts.forEach(r => { %><tr><td><%= r.nom %></td><% cols.forEach(c => { %><td class="r"><%= m(r.v[c.id]) %></td><% }) %><td class="r"><%= m(Object.values(r.v).reduce((s, x) => s + x, 0)) %></td></tr><% }) %>
+    <tr class="sous-total"><td>Total coûts</td><% cols.forEach(c => { %><td class="r"><%= fmt(tot(couts, c.id)) %></td><% }) %><td class="r"><%= fmt(tg(couts)) %></td></tr>
+
+    <tr class="resultat-net"><td>Résultat</td><% cols.forEach(c => { const x = tot(revenus, c.id) - tot(couts, c.id); %><td class="r <%= x < 0 ? 'neg' : 'pos' %>"><%= fmt(x) %></td><% }) %>
+      <% const g = tg(revenus) - tg(couts); %><td class="r <%= g < 0 ? 'neg' : 'pos' %>"><%= fmt(g) %></td></tr>
+  </tbody>
+</table>
+<% if (Object.keys(nonRappro).length) { %>
+<p class="muted"><small>Non compris (mouvements bancaires <%= annee %> pas encore rapprochés, TTC) :
+  <% cols.filter(c => nonRappro[c.id]).forEach((c, i) => { const n = nonRappro[c.id]; %><%= i ? ' · ' : '' %><%= c.nom %> : entrées <%= fmt(n.entrees) %>, sorties <%= fmt(n.sorties) %><% }) %>
+  — <a href="/rapprochement">voir les relevés</a></small></p>
+<% } %>
+<%- include('partials/footer') %>

@@ -1239,6 +1239,36 @@ app.get('/synthese', requireAuth, async (req, res) => {
   res.render('synthese', { annee, parEntite, annees: annees.map((x) => x.a) });
 });
 
+// ---------- compte de résultat simplifié (HT, par société et par catégorie) ----------
+app.get('/resultat', requireAuth, async (req, res) => {
+  const { rows: annees } = await pool.query('SELECT DISTINCT EXTRACT(YEAR FROM date_op)::int AS a FROM operations ORDER BY a DESC');
+  const annee = Number(req.query.annee) || (annees[0] ? annees[0].a : new Date().getFullYear());
+  const { rows: entites } = await pool.query('SELECT id, nom FROM entites ORDER BY nom');
+  const { rows } = await pool.query(`
+    SELECT o.type, COALESCE(c.nom, 'Non classé') AS categorie, o.entite_id,
+      SUM(o.montant_ttc - COALESCE(o.tva, 0)) AS ht
+    FROM operations o LEFT JOIN categories c ON c.id = o.categorie_id
+    WHERE EXTRACT(YEAR FROM o.date_op) = $1
+    GROUP BY 1, 2, 3`, [annee]);
+  // Mouvements bancaires de l'année sans opération (pas encore rapprochés) : non compris, signalés à part.
+  const { rows: nr } = await pool.query(`
+    SELECT c.entite_id, SUM(l.montant) FILTER (WHERE l.montant > 0) AS entrees, SUM(-l.montant) FILTER (WHERE l.montant < 0) AS sorties
+    FROM lignes l JOIN comptes c ON c.id = l.compte_id
+    WHERE EXTRACT(YEAR FROM l.date_op) = $1 AND l.operation_id IS NULL AND l.releve_carte_id IS NULL AND l.total_carte IS NULL AND NOT l.ignoree
+    GROUP BY 1`, [annee]);
+  const bloc = (type) => {
+    const cats = {};
+    for (const r of rows.filter((x) => x.type === type)) {
+      cats[r.categorie] = cats[r.categorie] || {};
+      cats[r.categorie][r.entite_id || 0] = Number(r.ht);
+    }
+    return Object.entries(cats).map(([nom, v]) => ({ nom, v })).sort((a, b) =>
+      Object.values(b.v).reduce((s, x) => s + x, 0) - Object.values(a.v).reduce((s, x) => s + x, 0));
+  };
+  res.render('resultat', { annee, annees: annees.map((x) => x.a), entites, revenus: bloc('recette'), couts: bloc('depense'),
+    nonRappro: Object.fromEntries(nr.map((x) => [x.entite_id || 0, { entrees: Number(x.entrees || 0), sorties: Number(x.sorties || 0) }])) });
+});
+
 // ---------- administration ----------
 app.get('/admin', requireAdmin, async (req, res) => {
   const { rows: users } = await pool.query('SELECT id, nom, email, is_admin, created_at FROM users ORDER BY nom');

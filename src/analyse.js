@@ -42,7 +42,8 @@ Si la page est vide ou ne contient aucun ticket/facture, renvoie { "documents": 
 Une facture de plusieurs pages ne compte qu'une fois (ne renvoie rien pour une page de suite sans total).
 Règle pour "societe" (achat) : la société DESTINATAIRE imprimée sur le document — « Facturé à », « Bill to », « Client »,
 « Billed to », « Sold to », adresse ou raison sociale de facturation, n° de TVA du client. Simple and New / SIMPLE AND NEW SAS → "SAN" ;
-LMF → "LMF" ; BMG → "BMG" ; SCI E NIZARD → "SCI". Une mention manuscrite de société, si présente, prime sur l'imprimé.
+LMF → "LMF" ; BMG → "BMG" ; SCI E NIZARD → "SCI". Adresse de facturation « 16 rue Tony Garnier, 92100 Boulogne-Billancourt »
+(siège de Simple and New), même sous un autre nom (« Emmanuel's Individual Org », « Emmanuel Nizard »…) → "SAN". Une mention manuscrite de société, si présente, prime sur l'imprimé.
 Règles pour les mentions MANUSCRITES (écrites au stylo sur le document — ticket, facturette CB, facture ou reçu ; regarde aussi les marges et le verso visible) :
 - Société : "LMF" → "LMF" ; "SAN" ou "Simple and New" → "SAN" ; "BMG" → "BMG" ; "SCI" ou "SCI E NIZARD" ou "Nizard" → "SCI".
 - Paiement : "Avance CC" ou "CC" (avance en compte courant) → "Avance CC" ; "CB CIC" ou "CIC" → "CB CIC" ; "AMEX" → "AMEX".

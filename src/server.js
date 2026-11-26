@@ -1320,9 +1320,9 @@ async function societesDepuisJustificatifs() {
 }
 setTimeout(async () => {
   try {
-    const { rows } = await pool.query("SELECT 1 FROM app_config WHERE cle='societes_justifs'");
+    const { rows } = await pool.query("SELECT 1 FROM app_config WHERE cle='societes_justifs_2'");
     if (rows[0]) return;
-    await pool.query("INSERT INTO app_config (cle, valeur) VALUES ('societes_justifs', '1') ON CONFLICT DO NOTHING");
+    await pool.query("INSERT INTO app_config (cle, valeur) VALUES ('societes_justifs_2', '1') ON CONFLICT DO NOTHING");
     await societesDepuisJustificatifs();
   } catch (e) { console.error(e.message); }
 }, 30000);
